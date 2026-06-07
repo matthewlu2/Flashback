@@ -30,98 +30,54 @@ struct SignUpView: View {
 
     var body: some View {
         ZStack {
-            // Background gradient
-            LinearGradient(
-                colors: [Color(white: 0.02), Color(white: 0.1)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            AuthBackground()
 
             ScrollView {
-                VStack(spacing: 32) {
-                    // Header
-                    VStack(spacing: 12) {
-                        Text("Flashback")
-                            .font(.system(size: 42, weight: .bold, design: .rounded))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [.white, .white.opacity(0.8)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-
+                VStack(alignment: .leading, spacing: 32) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Create your account")
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+
+                        Text("Join Flashback and start sharing memories.")
                             .font(.subheadline)
                             .foregroundColor(.gray)
                     }
-                    .padding(.top, 60)
-                    .padding(.bottom, 20)
+                    .padding(.top, 24)
 
-                    // Input fields
                     VStack(spacing: 16) {
-                        // Email field
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Email")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundColor(.gray)
+                        AuthTextField(
+                            label: "Email",
+                            prompt: "Email",
+                            text: $email,
+                            textContentType: .emailAddress,
+                            keyboardType: .emailAddress,
+                            autocapitalization: .never,
+                            disableAutocorrection: true,
+                            field: .email,
+                            focus: $focusedField
+                        )
 
-                            TextField("", text: $email, prompt: Text("Email").foregroundColor(.gray.opacity(0.5)))
-                                .textContentType(.emailAddress)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .keyboardType(.emailAddress)
-                                .focused($focusedField, equals: .email)
-                                .padding()
-                                .background(Color.white.opacity(0.05))
-                                .cornerRadius(12)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(focusedField == .email ? Color.white.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 1)
-                                )
-                        }
+                        AuthTextField(
+                            label: "Password",
+                            prompt: "Min. 6 characters",
+                            text: $password,
+                            isSecure: true,
+                            textContentType: .newPassword,
+                            field: .password,
+                            focus: $focusedField
+                        )
 
-                        // Password field
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Password")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundColor(.gray)
+                        AuthTextField(
+                            label: "Confirm Password",
+                            prompt: "Confirm password",
+                            text: $confirmPassword,
+                            isSecure: true,
+                            textContentType: .newPassword,
+                            field: .confirmPassword,
+                            focus: $focusedField
+                        )
 
-                            SecureField("", text: $password, prompt: Text("Min. 6 characters").foregroundColor(.gray.opacity(0.5)))
-                                .textContentType(.newPassword)
-                                .focused($focusedField, equals: .password)
-                                .padding()
-                                .background(Color.white.opacity(0.05))
-                                .cornerRadius(12)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(focusedField == .password ? Color.white.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 1)
-                                )
-                        }
-
-                        // Confirm Password field
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Confirm Password")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundColor(.gray)
-
-                            SecureField("", text: $confirmPassword, prompt: Text("Confirm password").foregroundColor(.gray.opacity(0.5)))
-                                .textContentType(.newPassword)
-                                .focused($focusedField, equals: .confirmPassword)
-                                .padding()
-                                .background(Color.white.opacity(0.05))
-                                .cornerRadius(12)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(focusedField == .confirmPassword ? Color.white.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 1)
-                                )
-                        }
-
-                        // Password mismatch warning
                         if !confirmPassword.isEmpty && password != confirmPassword {
                             HStack(spacing: 8) {
                                 Image(systemName: "exclamationmark.circle.fill")
@@ -129,26 +85,14 @@ struct SignUpView: View {
                                     .font(.caption)
                             }
                             .foregroundColor(.orange.opacity(0.9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .padding(.horizontal, 24)
 
-                    // Error message
                     if let errorMessage {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.circle.fill")
-                            Text(errorMessage)
-                                .font(.caption)
-                        }
-                        .foregroundColor(.red.opacity(0.9))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(Color.red.opacity(0.1))
-                        .cornerRadius(8)
-                        .padding(.horizontal, 24)
+                        AuthErrorBanner(message: errorMessage)
                     }
 
-                    // Success message
                     if showSuccess {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
@@ -156,68 +100,32 @@ struct SignUpView: View {
                                 .font(.caption)
                         }
                         .foregroundColor(.green.opacity(0.9))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(Color.green.opacity(0.1))
-                        .cornerRadius(8)
-                        .padding(.horizontal, 24)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
 
-                    // Sign up button
-                    Button {
+                    AuthPrimaryButton(
+                        title: "Sign Up",
+                        isLoading: isLoading,
+                        isEnabled: isFormValid
+                    ) {
                         signUpButtonTapped()
-                    } label: {
-                        HStack(spacing: 8) {
-                            if isLoading {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .black))
-                                    .scaleEffect(0.8)
-                            } else {
-                                Text("Sign Up")
-                                    .fontWeight(.semibold)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(isFormValid ? Color.white : Color.white.opacity(0.3))
-                        .foregroundColor(.black)
-                        .cornerRadius(12)
                     }
-                    .disabled(!isFormValid || isLoading)
-                    .padding(.horizontal, 24)
 
-                    Spacer(minLength: 40)
-
-                    // Sign in link
-                    HStack(spacing: 4) {
-                        Text("Already have an account?")
-                            .foregroundColor(.gray)
-                        Button("Sign In") {
-                            dismiss()
-                        }
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                    }
-                    .font(.subheadline)
-                    .padding(.bottom, 32)
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 24)
             }
         }
         .onTapGesture {
             focusedField = nil
         }
         .preferredColorScheme(.dark)
-        .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .foregroundColor(.white)
-                }
-            }
-        }
+        .navigationTitle("Sign Up")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func signUpButtonTapped() {

@@ -13,187 +13,85 @@ import GoogleSignIn
 import GoogleSignInSwift
 
 struct LoginView: View {
-    @State private var email = ""
-    @State private var password = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @FocusState private var focusedField: Field?
-
-    private enum Field {
-        case email, password
-    }
-
-    private var isFormValid: Bool {
-        !email.isEmpty && email.contains("@") && password.count >= 1
-    }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                // Background gradient
-                LinearGradient(
-                    colors: [Color(white: 0.02), Color(white: 0.1)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+                AuthBackground()
 
-                ScrollView {
-                    VStack(spacing: 32) {
-                        // Header
-                        VStack(spacing: 12) {
-                            Text("Flashback")
-                                .font(.system(size: 42, weight: .bold, design: .rounded))
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [.white, .white.opacity(0.8)],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                        }
-                        .padding(.top, 60)
-                        .padding(.bottom, 20)
+                VStack(spacing: 0) {
+                    Spacer()
 
-                        // Input fields
-                        VStack(spacing: 16) {
-                            // Email field
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Email")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.gray)
+                    // Branding
+                    VStack(spacing: 16) {
+                        Image("FlashbackLogo")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 120, height: 120)
 
-                                TextField("", text: $email, prompt: Text("Email").foregroundColor(.gray.opacity(0.5)))
-                                    .textContentType(.emailAddress)
-                                    .textInputAutocapitalization(.never)
-                                    .autocorrectionDisabled()
-                                    .keyboardType(.emailAddress)
-                                    .focused($focusedField, equals: .email)
-                                    .padding()
-                                    .background(Color.white.opacity(0.05))
-                                    .cornerRadius(12)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(focusedField == .email ? Color.white.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 1)
-                                    )
-                            }
-
-                            // Password field
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Password")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.gray)
-
-                                SecureField("", text: $password, prompt: Text("Password").foregroundColor(.gray.opacity(0.5)))
-                                    .textContentType(.password)
-                                    .focused($focusedField, equals: .password)
-                                    .padding()
-                                    .background(Color.white.opacity(0.05))
-                                    .cornerRadius(12)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(focusedField == .password ? Color.white.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 1)
-                                    )
-                            }
-                        }
-                        .padding(.horizontal, 24)
-
-                        // Error message
-                        if let errorMessage {
-                            HStack(spacing: 8) {
-                                Image(systemName: "exclamationmark.circle.fill")
-                                Text(errorMessage)
-                                    .font(.caption)
-                            }
-                            .foregroundColor(.red.opacity(0.9))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(Color.red.opacity(0.1))
-                            .cornerRadius(8)
-                            .padding(.horizontal, 24)
-                        }
-
-                        // Sign in button
-                        Button {
-                            signInWithEmail()
-                        } label: {
-                            HStack(spacing: 8) {
-                                if isLoading {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .black))
-                                        .scaleEffect(0.8)
-                                } else {
-                                    Text("Sign In")
-                                        .fontWeight(.semibold)
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(isFormValid ? Color.white : Color.white.opacity(0.3))
-                            .foregroundColor(.black)
-                            .cornerRadius(12)
-                        }
-                        .disabled(!isFormValid || isLoading)
-                        .padding(.horizontal, 24)
-
-                        // Divider
-                        HStack {
-                            Rectangle()
-                                .fill(Color.white.opacity(0.1))
-                                .frame(height: 1)
-                            Text("or continue with")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                                .fixedSize()
-                            Rectangle()
-                                .fill(Color.white.opacity(0.1))
-                                .frame(height: 1)
-                        }
-                        .padding(.horizontal, 24)
-
-                        // Social sign-in buttons
-                        HStack(spacing: 16) {
-                            // Google
-                            Button {
-                                Task {
-                                    await signInWithSocial(provider: .google)
-                                }
-                            } label: {
-                                Image("google_ctn")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(height: 44)
-                            }
-                            .disabled(isLoading)
-
-                            // Apple
-                            SignInWithAppleButton(.signIn) { request in
-                                request.requestedScopes = [.fullName, .email]
-                            } onCompletion: { result in
-                                handleAppleSignIn(result)
-                            }
-                            .frame(height: 44)
-                            .mask(Capsule())
-                        }
-                        .padding(.horizontal, 32)
-
-                        Spacer(minLength: 40)
-
-                        // Sign up link
-                        HStack(spacing: 4) {
-                            Text("Don't have an account?")
-                                .foregroundColor(.gray)
-                            NavigationLink("Sign Up") {
-                                SignUpView()
-                            }
-                            .fontWeight(.semibold)
+                        Text("Flashback")
+                            .font(.system(size: 44, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
+
+                        VStack(spacing: 8) {
+                            Text("Capture moments. Relive memories.")
+                                .font(.headline)
+                                .foregroundColor(.white)
+
+                            Text("Share photos with friends and revisit your favorite flashbacks together.")
+                                .font(.subheadline)
+                                .foregroundColor(.white.opacity(0.6))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
                         }
-                        .font(.subheadline)
-                        .padding(.bottom, 32)
                     }
+
+                    Spacer()
+
+                    // Authentication
+                    VStack(spacing: 16) {
+                        if let errorMessage {
+                            AuthErrorBanner(message: errorMessage)
+                        }
+
+                        GoogleSignInButton(isLoading: isLoading) {
+                            Task { await signInWithSocial(provider: .google) }
+                        }
+
+                        AppleSignInButton { request in
+                            request.requestedScopes = [.fullName, .email]
+                        } onCompletion: { result in
+                            handleAppleSignIn(result)
+                        }
+
+                        NavigationLink {
+                            EmailSignInView()
+                        } label: {
+                            Text("Sign in with email")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+
+                    // Sign up link
+                    HStack(spacing: 4) {
+                        Text("Don't have an account?")
+                            .foregroundColor(.gray)
+                        NavigationLink("Sign Up") {
+                            SignUpView()
+                        }
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                    }
+                    .font(.subheadline)
+                    .padding(.top, 8)
+                    .padding(.bottom, 32)
                 }
             }
             .onOpenURL { url in
@@ -205,30 +103,8 @@ struct LoginView: View {
                     }
                 }
             }
-            .onTapGesture {
-                focusedField = nil
-            }
         }
         .preferredColorScheme(.dark)
-    }
-
-    private func signInWithEmail() {
-        Task {
-            isLoading = true
-            errorMessage = nil
-            focusedField = nil
-
-            defer { isLoading = false }
-
-            do {
-                try await supabase.auth.signIn(
-                    email: email,
-                    password: password
-                )
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
     }
 
     private func signInWithSocial(provider: Provider) async {

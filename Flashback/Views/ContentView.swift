@@ -16,10 +16,17 @@ struct ContentView: View {
                 .tabItem {
                     Label("Home", systemImage: "house")
                 }
+            CameraView()
+                .tabItem {
+                    Label("Camera", systemImage: "camera")
+                }
             ProfileView()
                 .tabItem {
                     Label("Profile", systemImage: "person")
                 }
+        }
+        .task {
+            await MediaBackfill.runIfNeeded()
         }
     }
 }
