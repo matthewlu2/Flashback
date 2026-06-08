@@ -19,6 +19,14 @@ class FlashbackManager: ObservableObject {
 
     private init() {}
 
+    /// Clears all cached state. Call when the authenticated user changes so one account's
+    /// albums never leak into (or hide) another's.
+    func reset() {
+        flashbacks = []
+        hasLoadedFlashbacks = false
+        isLoading = false
+    }
+
     func loadFlashbacksIfNeeded() async {
         guard !hasLoadedFlashbacks else { return }
 
@@ -26,12 +34,10 @@ class FlashbackManager: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let userId = try await supabase.auth.session.user.id
-
+            // RLS returns every flashback the current user is a member of (owner or invited).
             let response: [Flashback] = try await supabase
                 .from("flashbacks")
                 .select()
-                .eq("user_id", value: userId)
                 .order("created_at", ascending: false)
                 .execute()
                 .value
@@ -188,4 +194,108 @@ class FlashbackManager: ObservableObject {
         // Remove from local array
         flashbacks.removeAll { $0.id == flashback.id }
     }
+
+    // MARK: - Membership & sharing
+
+    func currentUserId() async -> UUID? {
+        try? await supabase.auth.session.user.id
+    }
+
+    /// True when the given flashback was created by (and is owned by) the current user.
+    func isOwner(of flashback: Flashback) async -> Bool {
+        guard let me = await currentUserId() else { return false }
+        return flashback.userId == me
+    }
+
+    func members(for flashbackId: UUID) async throws -> [MemberInfo] {
+        let rows: [FlashbackMember] = try await supabase
+            .from("flashback_members")
+            .select()
+            .eq("flashback_id", value: flashbackId)
+            .order("created_at", ascending: true)
+            .execute()
+            .value
+
+        let profiles = try await fetchProfiles(ids: rows.map { $0.userId })
+        return rows.map { row in
+            MemberInfo(
+                userId: row.userId,
+                role: row.role,
+                profile: profiles[row.userId]
+            )
+        }
+    }
+
+    func pendingRequests(for flashbackId: UUID) async throws -> [JoinRequestInfo] {
+        let rows: [FlashbackJoinRequest] = try await supabase
+            .from("flashback_join_requests")
+            .select()
+            .eq("flashback_id", value: flashbackId)
+            .eq("status", value: "pending")
+            .order("created_at", ascending: true)
+            .execute()
+            .value
+
+        let profiles = try await fetchProfiles(ids: rows.map { $0.userId })
+        return rows.map { row in
+            JoinRequestInfo(request: row, profile: profiles[row.userId])
+        }
+    }
+
+    func approve(requestId: UUID) async throws {
+        try await supabase
+            .rpc("approve_join_request", params: ["request_id": requestId])
+            .execute()
+    }
+
+    func deny(requestId: UUID) async throws {
+        try await supabase
+            .rpc("deny_join_request", params: ["request_id": requestId])
+            .execute()
+    }
+
+    /// Owner directly adds a friend (in-app invite = pre-approved).
+    func addMember(_ userId: UUID, to flashbackId: UUID) async throws {
+        try await supabase
+            .rpc("add_member", params: ["p_flashback_id": flashbackId.uuidString, "p_user_id": userId.uuidString])
+            .execute()
+    }
+
+    func leave(flashbackId: UUID) async throws {
+        guard let me = await currentUserId() else { return }
+        try await supabase
+            .from("flashback_members")
+            .delete()
+            .eq("flashback_id", value: flashbackId)
+            .eq("user_id", value: me)
+            .execute()
+        flashbacks.removeAll { $0.id == flashbackId }
+    }
+
+    private func fetchProfiles(ids: [UUID]) async throws -> [UUID: PublicProfile] {
+        let unique = Array(Set(ids))
+        guard !unique.isEmpty else { return [:] }
+        let profiles: [PublicProfile] = try await supabase
+            .from("profiles")
+            .select("id, username, full_name, avatar_url")
+            .in("id", values: unique.map { $0.uuidString })
+            .execute()
+            .value
+        return Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+    }
+}
+
+struct MemberInfo: Identifiable {
+    let userId: UUID
+    let role: MemberRole
+    let profile: PublicProfile?
+    var id: UUID { userId }
+    var displayName: String { profile?.displayName ?? "Member" }
+}
+
+struct JoinRequestInfo: Identifiable {
+    let request: FlashbackJoinRequest
+    let profile: PublicProfile?
+    var id: UUID { request.id }
+    var displayName: String { profile?.displayName ?? "Someone" }
 }

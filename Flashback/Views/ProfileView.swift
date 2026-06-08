@@ -55,6 +55,13 @@ struct ProfileView: View {
       }
       .navigationTitle("Profile")
       .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          NavigationLink {
+            FriendsView()
+          } label: {
+            Image(systemName: "person.2")
+          }
+        }
         ToolbarItem(placement: .topBarTrailing) {
           Button {
             showingSettings = true

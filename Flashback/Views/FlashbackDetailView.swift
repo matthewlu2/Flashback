@@ -16,6 +16,8 @@ struct FlashbackDetailView: View {
     @State private var mediaToDelete: FlashbackPhoto?
     @State private var showingDeleteConfirmation = false
     @State private var selectedMedia: FlashbackPhoto?
+    @State private var showingShare = false
+    @State private var isOwner = false
 
     private let columns = [
         GridItem(.flexible(), spacing: 1),
@@ -55,6 +57,18 @@ struct FlashbackDetailView: View {
             }
         }
         .navigationTitle(flashback.name)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingShare = true
+                } label: {
+                    Image(systemName: "person.crop.circle.badge.plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showingShare) {
+            ShareFlashbackView(flashback: flashback, isOwner: isOwner)
+        }
         .alert("Delete", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 mediaToDelete = nil
@@ -78,6 +92,9 @@ struct FlashbackDetailView: View {
             )
         }
         .task {
+            // Resolve ownership first (it's a fast local-session check) so the share sheet
+            // and owner-only controls reflect the correct state immediately.
+            isOwner = await FlashbackManager.shared.isOwner(of: flashback)
             await loadMedia()
         }
     }

@@ -22,6 +22,16 @@
 				<string>com.googleusercontent.apps.172538412994-q2ek5sg6hponppehvtb6ju0k7la3bei3</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>flashback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>flashback</string>
+			</array>
+		</dict>
 	</array>
 	<key>GIDClientID</key>
 	<string>172538412994-q2ek5sg6hponppehvtb6ju0k7la3bei3.apps.googleusercontent.com</string>
