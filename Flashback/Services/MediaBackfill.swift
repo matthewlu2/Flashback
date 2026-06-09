@@ -104,7 +104,9 @@ enum MediaBackfill {
 
         guard let thumbnailData else { return nil }
 
-        let thumbnailPath = "\(userId)/thumb_\(UUID().uuidString).jpg"
+        // Lowercase to match storage RLS, which compares the folder segment against
+        // auth.uid()::text (always lowercase). Swift's uuidString is uppercase.
+        let thumbnailPath = "\(userId.uuidString.lowercased())/thumb_\(UUID().uuidString.lowercased()).jpg"
         do {
             try await supabase.storage
                 .from("images")

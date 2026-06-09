@@ -17,6 +17,11 @@ class FlashbackManager: ObservableObject {
     @Published var isLoading = false
     @Published var hasLoadedFlashbacks = false
 
+    /// Signals that media was just added to a flashback. Views showing that album observe
+    /// this to reload, since uploads complete in the background after the view has already
+    /// loaded its contents once.
+    @Published private(set) var lastMediaUpdate: MediaUpdate?
+
     private init() {}
 
     /// Clears all cached state. Call when the authenticated user changes so one account's
@@ -91,6 +96,9 @@ class FlashbackManager: ObservableObject {
             .from("flashback_photos")
             .insert(params)
             .execute()
+
+        // Notify any view currently showing this album so it reloads the new media.
+        lastMediaUpdate = MediaUpdate(flashbackId: flashbackId, token: UUID())
 
         // Update cover image if not set
         if let index = flashbacks.firstIndex(where: { $0.id == flashbackId }),
@@ -283,6 +291,13 @@ class FlashbackManager: ObservableObject {
             .value
         return Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
     }
+}
+
+/// Identifies a media-added event for a specific flashback. The `token` makes each event
+/// unique so repeated additions to the same album still trigger observers.
+struct MediaUpdate: Equatable {
+    let flashbackId: UUID
+    let token: UUID
 }
 
 struct MemberInfo: Identifiable {

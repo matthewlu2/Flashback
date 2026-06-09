@@ -11,6 +11,7 @@ import AVKit
 struct FlashbackDetailView: View {
     let flashback: Flashback
 
+    @ObservedObject private var flashbackManager = FlashbackManager.shared
     @State private var media: [FlashbackPhoto] = []
     @State private var isLoading = true
     @State private var mediaToDelete: FlashbackPhoto?
@@ -56,6 +57,9 @@ struct FlashbackDetailView: View {
                 }
             }
         }
+        .refreshable {
+            await loadMedia()
+        }
         .navigationTitle(flashback.name)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -97,6 +101,11 @@ struct FlashbackDetailView: View {
             isOwner = await FlashbackManager.shared.isOwner(of: flashback)
             await loadMedia()
         }
+        .onReceive(flashbackManager.$lastMediaUpdate) { update in
+            // A photo/video finished uploading to an album. Reload if it's this one.
+            guard let update, update.flashbackId == flashback.id else { return }
+            Task { await loadMedia() }
+        }
     }
 
     private func deleteMedia(_ item: FlashbackPhoto) {
@@ -112,7 +121,11 @@ struct FlashbackDetailView: View {
     }
 
     private func loadMedia() async {
-        isLoading = true
+        // Only show the full-screen spinner on the first load; background reloads (after an
+        // upload or pull-to-refresh) should update the grid in place without flashing.
+        if media.isEmpty {
+            isLoading = true
+        }
         defer { isLoading = false }
 
         do {

@@ -57,8 +57,10 @@ class UploadManager: ObservableObject {
             }
 
             do {
-                let userId = try await supabase.auth.session.user.id
-                let assetId = UUID().uuidString
+                // Lowercase to match storage RLS, which compares the folder segment against
+                // auth.uid()::text (always lowercase). Swift's uuidString is uppercase.
+                let userId = try await supabase.auth.session.user.id.uuidString.lowercased()
+                let assetId = UUID().uuidString.lowercased()
                 let storagePath = "\(userId)/\(assetId).jpg"
                 var thumbnailPath: String?
 
@@ -109,8 +111,10 @@ class UploadManager: ObservableObject {
                 let videoData = try Data(contentsOf: compressedURL)
                 let duration = await getVideoDuration(url: compressedURL)
 
-                let userId = try await supabase.auth.session.user.id
-                let assetId = UUID().uuidString
+                // Lowercase to match storage RLS, which compares the folder segment against
+                // auth.uid()::text (always lowercase). Swift's uuidString is uppercase.
+                let userId = try await supabase.auth.session.user.id.uuidString.lowercased()
+                let assetId = UUID().uuidString.lowercased()
                 let storagePath = "\(userId)/\(assetId).mp4"
                 var thumbnailPath: String?
 
