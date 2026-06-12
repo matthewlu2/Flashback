@@ -1,17 +1,17 @@
 {
   "images" : [
     {
-      "filename" : "FlashbackArrows.png",
+      "filename" : "google.png",
       "idiom" : "universal",
       "scale" : "1x"
     },
     {
-      "filename" : "FlashbackArrows 1.png",
+      "filename" : "google@2x.png",
       "idiom" : "universal",
       "scale" : "2x"
     },
     {
-      "filename" : "FlashbackArrows 2.png",
+      "filename" : "google@3x.png",
       "idiom" : "universal",
       "scale" : "3x"
     }

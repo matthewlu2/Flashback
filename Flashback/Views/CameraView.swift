@@ -64,7 +64,7 @@ struct CameraView: View {
                             .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
                     }
                     .disabled(cameraManager.isRecording)
-                    .opacity(cameraManager.isRecording ? 0.4 : 1)
+                    .opacity(cameraManager.isRecording ? 0 : 1)
 
                     Spacer()
 
@@ -117,15 +117,15 @@ struct CameraView: View {
                     Button {
                         cameraManager.flipCamera()
                     } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath.camera")
+                        Image(systemName: "arrow.triangle.2.circlepath")
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                             .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
                     }
-                    .disabled(cameraManager.isRecording)
-                    .opacity(cameraManager.isRecording ? 0.4 : 1)
+//                    .disabled(cameraManager.isRecording)
+//                    .opacity(cameraManager.isRecording ? 0.4 : 1)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 60)

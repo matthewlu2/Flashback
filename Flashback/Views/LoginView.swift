@@ -15,6 +15,8 @@ import GoogleSignInSwift
 struct LoginView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var appleCoordinator = AppleSignInCoordinator()
+
 
     var body: some View {
         NavigationStack {
@@ -56,15 +58,28 @@ struct LoginView: View {
                             AuthErrorBanner(message: errorMessage)
                         }
 
-                        GoogleSignInButton(isLoading: isLoading) {
+//                        GoogleSignInButton(isLoading: isLoading) {
+//                            Task { await signInWithSocial(provider: .google) }
+//                        }
+                        
+//                        AppleSignInButton { request in
+//                            request.requestedScopes = [.fullName, .email]
+//                        } onCompletion: { result in
+//                            handleAppleSignIn(result)
+//                        }
+                        
+                        SocialSignInButton(logo: .apple, title: "Sign in with Apple") {
+                            appleCoordinator.signIn { result in
+                                handleAppleSignIn(result)
+                            }
+                        }
+
+                        SocialSignInButton(logo: .google,
+                                           title: "Sign in with Google",
+                                           isLoading: isLoading) {
                             Task { await signInWithSocial(provider: .google) }
                         }
 
-                        AppleSignInButton { request in
-                            request.requestedScopes = [.fullName, .email]
-                        } onCompletion: { result in
-                            handleAppleSignIn(result)
-                        }
 
                         NavigationLink {
                             EmailSignInView()
@@ -191,8 +206,96 @@ private enum AuthError: LocalizedError {
         case .custom(let message):
             return message
         }
+    }				
+}
+
+struct SocialSignInButton: View {
+    enum Logo { case apple, google }
+
+    let logo: Logo
+    let title: String
+    var isLoading: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.black)
+                } else {
+                    HStack(spacing: 12) {
+                        logoView
+                            .frame(width: 20, height: 20)
+
+                        Text(title)
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundColor(.black)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)   // identical width
+            .frame(height: 45)            // identical height
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .disabled(isLoading)
+    }
+
+    @ViewBuilder
+    private var logoView: some View {
+        switch logo {
+        case .apple:
+            Image(systemName: "apple.logo")   // Apple's approved mark
+                .resizable()
+                .scaledToFit()
+                .foregroundColor(.black)
+        case .google:
+            Image("GoogleLogo")               // official multicolor "G" asset
+                .resizable()
+                .scaledToFit()
+        }
     }
 }
+
+final class AppleSignInCoordinator: NSObject,
+    ASAuthorizationControllerDelegate,
+    ASAuthorizationControllerPresentationContextProviding {
+
+    private var completion: ((Result<ASAuthorization, Error>) -> Void)?
+
+    func signIn(completion: @escaping (Result<ASAuthorization, Error>) -> Void) {
+        self.completion = completion
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+
+        let controller = ASAuthorizationController(authorizationRequests: [request])
+        controller.delegate = self
+        controller.presentationContextProvider = self
+        controller.performRequests()
+    }
+
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithAuthorization authorization: ASAuthorization) {
+        completion?(.success(authorization))
+    }
+
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithError error: Error) {
+        completion?(.failure(error))
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
+            .windows.first ?? ASPresentationAnchor()
+    }
+}
+
 
 #Preview {
     LoginView()
