@@ -18,6 +18,16 @@ class CameraManager: NSObject, ObservableObject {
     @Published var flashMode: AVCaptureDevice.FlashMode = .auto
     @Published var isRecording = false
 
+    // Zoom
+    @Published var displayZoom: CGFloat = 1.0
+    @Published var zoomPresets: [CGFloat] = [1.0]
+    @Published var minDisplayZoom: CGFloat = 1.0
+    @Published var maxDisplayZoom: CGFloat = 1.0
+    @Published var frontWideSupported: Bool = false
+
+    /// Native `videoZoomFactor` that maps to a displayed zoom of `1.0x`.
+    private var baseZoomFactor: CGFloat = 1.0
+
     let session = AVCaptureSession()
     private var photoOutput = AVCapturePhotoOutput()
     private var videoOutput = AVCaptureMovieFileOutput()
@@ -74,19 +84,21 @@ class CameraManager: NSObject, ObservableObject {
             
             self.session.beginConfiguration()
             self.session.sessionPreset = .high
-            
+
             // Video input
-            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: self.currentPosition),
+            guard let camera = self.bestCamera(for: self.currentPosition),
                   let input = try? AVCaptureDeviceInput(device: camera) else {
                 print("Failed to access camera")
                 self.session.commitConfiguration()
                 return
             }
-            
+
             if self.session.canAddInput(input) {
                 self.session.addInput(input)
                 self.currentInput = input
             }
+
+            self.configureZoom(for: camera, position: self.currentPosition)
 
             // Audio input
             if let audioDevice = AVCaptureDevice.default(for: .audio),
@@ -180,7 +192,7 @@ class CameraManager: NSObject, ObservableObject {
 
             let newPosition: AVCaptureDevice.Position = self.currentPosition == .back ? .front : .back
 
-            guard let newCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: newPosition),
+            guard let newCamera = self.bestCamera(for: newPosition),
                   let newInput = try? AVCaptureDeviceInput(device: newCamera) else {
                 print("Failed to access \(newPosition == .front ? "front" : "back") camera")
                 return
@@ -201,8 +213,144 @@ class CameraManager: NSObject, ObservableObject {
                 }
             }
 
+            self.configureZoom(for: newCamera, position: newPosition)
+
             self.session.commitConfiguration()
         }
+    }
+
+    // MARK: - Device selection
+
+    /// Picks the most capable camera for a position. The back camera uses a virtual
+    /// (multi-lens) device when available so the system switches lenses automatically
+    /// as `videoZoomFactor` changes.
+    private func bestCamera(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+        if position == .back {
+            return AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back)
+                ?? AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back)
+                ?? AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back)
+                ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        }
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
+    }
+
+    // MARK: - Zoom
+
+    /// Inspects a device's lenses (back) or field-of-view formats (front) to build the
+    /// preset list, the native↔display mapping, and the pinch range. Must run inside a
+    /// session configuration block on `sessionQueue`.
+    private func configureZoom(for device: AVCaptureDevice, position: AVCaptureDevice.Position) {
+        var base: CGFloat = 1.0
+        var presets: [CGFloat] = [1.0]
+        var minDisplay: CGFloat = 1.0
+        var maxDisplay: CGFloat = 1.0
+        var frontWide = false
+
+        if position == .back {
+            let lensTypes = device.constituentDevices.map { $0.deviceType }
+            let hasUltraWide = lensTypes.contains(.builtInUltraWideCamera)
+            let switchOvers = device.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat(truncating: $0) }
+
+            // With an ultra-wide lens, native 1.0 is the UI "0.5x"; the wide lens (UI "1x")
+            // begins at the first switch-over factor.
+            if hasUltraWide, let firstSwitch = switchOvers.first {
+                base = firstSwitch
+            }
+
+            var displayPresets: [CGFloat] = []
+            if hasUltraWide {
+                displayPresets.append(roundToTenth(device.minAvailableVideoZoomFactor / base))
+            }
+            displayPresets.append(1.0)
+            // Telephoto presets come from switch-over factors beyond the ultra-wide→wide one.
+            let telephotoSwitchOvers = hasUltraWide ? Array(switchOvers.dropFirst()) : switchOvers
+            for factor in telephotoSwitchOvers {
+                displayPresets.append(roundToTenth(factor / base))
+            }
+
+            presets = uniqueSorted(displayPresets)
+            minDisplay = roundToTenth(device.minAvailableVideoZoomFactor / base)
+            maxDisplay = roundToTenth(min(device.maxAvailableVideoZoomFactor / base, 15))
+        } else {
+            // Front camera: default to the widest field of view when the device offers one.
+            let active = device.activeFormat
+            let widest = device.formats.max(by: { $0.videoFieldOfView < $1.videoFieldOfView })
+            if let widest, widest.videoFieldOfView > active.videoFieldOfView + 1 {
+                frontWide = true
+                session.sessionPreset = .inputPriority
+                if (try? device.lockForConfiguration()) != nil {
+                    device.activeFormat = widest
+                    device.unlockForConfiguration()
+                }
+                presets = [1.0, 1.4] // Wide (default) and a tighter crop.
+                maxDisplay = roundToTenth(min(device.maxAvailableVideoZoomFactor, 4))
+            } else {
+                session.sessionPreset = .high
+                presets = [1.0]
+                maxDisplay = roundToTenth(min(device.maxAvailableVideoZoomFactor, 4))
+            }
+            minDisplay = 1.0
+        }
+
+        // Start at 1x on the new camera.
+        applyNativeZoom(base, to: device)
+
+        DispatchQueue.main.async {
+            self.baseZoomFactor = base
+            self.zoomPresets = presets
+            self.minDisplayZoom = minDisplay
+            self.maxDisplayZoom = max(maxDisplay, presets.last ?? 1.0)
+            self.frontWideSupported = frontWide
+            self.displayZoom = 1.0
+        }
+    }
+
+    /// Sets zoom from a displayed value (e.g. 0.5, 1.0, 2.4). Use `ramp` for smooth
+    /// transitions on preset taps; direct application for live pinch updates.
+    func setZoom(display: CGFloat, ramp: Bool = false) {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.currentInput?.device else { return }
+
+            let clamped = min(max(display, self.minDisplayZoom), self.maxDisplayZoom)
+            let native = clamped * self.baseZoomFactor
+
+            do {
+                try device.lockForConfiguration()
+                let bounded = min(max(native, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+                if ramp {
+                    device.ramp(toVideoZoomFactor: bounded, withRate: 12)
+                } else {
+                    device.cancelVideoZoomRamp()
+                    device.videoZoomFactor = bounded
+                }
+                device.unlockForConfiguration()
+
+                DispatchQueue.main.async {
+                    self.displayZoom = clamped
+                }
+            } catch {
+                print("setZoom error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Directly applies a native zoom factor (used to reset on camera changes).
+    private func applyNativeZoom(_ factor: CGFloat, to device: AVCaptureDevice) {
+        do {
+            try device.lockForConfiguration()
+            device.videoZoomFactor = min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+            device.unlockForConfiguration()
+        } catch {
+            print("applyNativeZoom error: \(error.localizedDescription)")
+        }
+    }
+
+    private func roundToTenth(_ value: CGFloat) -> CGFloat {
+        (value * 10).rounded() / 10
+    }
+
+    private func uniqueSorted(_ values: [CGFloat]) -> [CGFloat] {
+        Array(Set(values)).sorted()
     }
 }
 

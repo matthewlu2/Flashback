@@ -18,6 +18,8 @@ struct CameraView: View {
     @State private var showingCreateFlashback = false
     @State private var recordingDuration: TimeInterval = 0
     @State private var recordingTimer: Timer?
+    @State private var gestureStartZoom: CGFloat = 1.0
+    @State private var isPinching = false
 
     private static let lastFlashbackKey = "lastSelectedFlashbackId"
 
@@ -31,6 +33,19 @@ struct CameraView: View {
                     .onTapGesture(count: 2) {
                         flipCamera()
                     }
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { scale in
+                                if !isPinching {
+                                    isPinching = true
+                                    gestureStartZoom = cameraManager.displayZoom
+                                }
+                                cameraManager.setZoom(display: gestureStartZoom * scale)
+                            }
+                            .onEnded { _ in
+                                isPinching = false
+                            }
+                    )
             }
             else {
                 VStack {
@@ -55,9 +70,47 @@ struct CameraView: View {
             }
 
             VStack {
-                // Top bar: flash (left) - album (center) - flip (right)
-                HStack {
-                    // Flash toggle - top left
+                // Recording timer - top center
+                if cameraManager.isRecording {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 10, height: 10)
+
+                        Text(formatDuration(recordingDuration))
+                            .font(.subheadline.monospacedDigit())
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                }
+
+                Spacer()
+            }
+            .padding(.top, 40)
+
+            // Right-side controls: flip (top) - flash - album (bottom)
+            VStack {
+              HStack {
+                Spacer()
+
+                VStack(spacing: 4) {
+                    // Flip Camera Button
+                    Button {
+                        flipCamera()
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                            .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+                    }
+
+                    // Flash toggle
                     Button {
                         cycleFlashMode()
                     } label: {
@@ -71,71 +124,38 @@ struct CameraView: View {
                     .disabled(cameraManager.isRecording)
                     .opacity(cameraManager.isRecording ? 0 : 1)
 
-                    Spacer()
-
-                    // Current album selector - centered
-                    if cameraManager.isRecording {
-                        HStack(spacing: 8) {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 10, height: 10)
-
-                            Text(formatDuration(recordingDuration))
-                                .font(.subheadline.monospacedDigit())
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.white)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Capsule())
-                    } else {
-                        Button {
-                            showingFlashbackPicker = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Circle()
-                                    .fill(selectedFlashback != nil ? Color.green : Color.gray)
-                                    .frame(width: 8, height: 8)
-                                    .shadow(color: selectedFlashback != nil ? .green.opacity(0.9) : .clear, radius: 4)
-
-                                Text(selectedFlashback?.name ?? "Choose Flashback")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.white)
-
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.8))
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Capsule())
-                            .shadow(color: .black.opacity(0.25), radius: 4, y: 1)
-                        }
-                    }
-
-                    Spacer()
-
-                    // Flip Camera Button - top right
+                    // Album selector - circular, green dot indicates a selection
                     Button {
-                        flipCamera()
+                        showingFlashbackPicker = true
                     } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Image(systemName: "rectangle.stack.fill")
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                             .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+                            .overlay(alignment: .topTrailing) {
+                                Circle()
+                                    .fill(selectedFlashback != nil ? Color.green : Color.gray)
+                                    .frame(width: 10, height: 10)
+                                    .shadow(color: selectedFlashback != nil ? .green.opacity(0.9) : .clear, radius: 4)
+                                    .offset(x: -2, y: 2)
+                            }
                     }
-//                    .disabled(cameraManager.isRecording)
-//                    .opacity(cameraManager.isRecording ? 0.4 : 1)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 60)
+                .padding(.trailing, 8)
+              }
+              .padding(.top, 4)
 
+              Spacer()
+            }
+
+            VStack {
                 Spacer()
+
+                // Zoom controls
+                zoomControl
+                    .padding(.bottom, 20)
 
                 // Capture Button
                 ShutterButton(
@@ -208,6 +228,67 @@ struct CameraView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Zoom controls
+
+    @ViewBuilder
+    private var zoomControl: some View {
+        if cameraManager.currentPosition == .front {
+            if cameraManager.frontWideSupported {
+                HStack(spacing: 4) {
+                    zoomChip(value: 1.0, inactiveLabel: "Wide")
+                    zoomChip(value: 1.4, inactiveLabel: "Crop")
+                }
+                .padding(3)
+                .background(Color.black.opacity(0.2))
+                .clipShape(Capsule())
+            }
+        } else if cameraManager.zoomPresets.count > 1 {
+            HStack(spacing: 4) {
+                ForEach(cameraManager.zoomPresets, id: \.self) { preset in
+                    zoomChip(value: preset, inactiveLabel: presetLabel(preset))
+                }
+            }
+            .padding(3)
+            .background(Color.black.opacity(0.2))
+            .clipShape(Capsule())
+        }
+    }
+
+    private func zoomChip(value: CGFloat, inactiveLabel: String) -> some View {
+        let isActive = isActivePreset(value)
+        return Button {
+            cameraManager.setZoom(display: value, ramp: true)
+        } label: {
+            Text(isActive ? activeZoomLabel() : inactiveLabel)
+                .font(.system(size: isActive ? 12 : 10, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .foregroundStyle(isActive ? .yellow : .white)
+                .frame(width: isActive ? 32 : 27, height: isActive ? 32 : 27)
+                .background(Color.black.opacity(0.25))
+                .clipShape(Circle())
+        }
+    }
+
+    /// The preset nearest to the current zoom is considered active.
+    private func isActivePreset(_ preset: CGFloat) -> Bool {
+        let presets = cameraManager.zoomPresets
+        guard let nearest = presets.min(by: {
+            abs($0 - cameraManager.displayZoom) < abs($1 - cameraManager.displayZoom)
+        }) else { return false }
+        return nearest == preset
+    }
+
+    /// Live value shown on the active chip, e.g. "1×" or "2.4×".
+    private func activeZoomLabel() -> String {
+        let z = cameraManager.displayZoom
+        return z == z.rounded() ? "\(Int(z))×" : String(format: "%.1f×", z)
+    }
+
+    private func presetLabel(_ preset: CGFloat) -> String {
+        preset == preset.rounded() ? "\(Int(preset))" : String(format: "%.1f", preset)
     }
 
     // MARK: - Camera flip

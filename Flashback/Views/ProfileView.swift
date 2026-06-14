@@ -19,33 +19,32 @@ struct ProfileView: View {
   @State private var deleteError: String?
 
   private let columns = [
-    GridItem(.flexible()),
-    GridItem(.flexible()),
-    GridItem(.flexible())
+    GridItem(.flexible(), spacing: 12),
+    GridItem(.flexible(), spacing: 12),
+    GridItem(.flexible(), spacing: 12)
   ]
 
   var body: some View {
     NavigationStack {
       ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 24) {
           ProfileHeaderView(
             profile: profile,
             friendsCount: friendsManager.friends.count,
             flashbacksCount: flashbackManager.flashbacks.count
           )
           .padding(.horizontal)
-          .padding(.top)
-
-          Divider()
-            .padding(.horizontal)
-            .padding(.vertical, 12)
+          .padding(.top, 8)
 
           if flashbackManager.flashbacks.isEmpty && !flashbackManager.isLoading {
-            Text("No flashbacks yet")
-              .foregroundColor(.gray)
-              .padding()
+            ContentUnavailableView(
+              "No Flashbacks Yet",
+              systemImage: "photo.on.rectangle.angled",
+              description: Text("Flashbacks you create will appear here.")
+            )
+            .padding(.top, 40)
           } else {
-            LazyVGrid(columns: columns, spacing: 2) {
+            LazyVGrid(columns: columns, spacing: 12) {
               ForEach(flashbackManager.flashbacks) { flashback in
                 NavigationLink(destination: FlashbackDetailView(flashback: flashback)) {
                   FlashbackGridItemView(flashback: flashback)
@@ -60,10 +59,11 @@ struct ProfileView: View {
                 }
               }
             }
+            .padding(.horizontal)
           }
         }
       }
-      .navigationTitle("")
+      .navigationTitle(profile?.username.map { "@\($0)" } ?? "Profile")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
@@ -153,37 +153,33 @@ private struct ProfileHeaderView: View {
   let flashbacksCount: Int
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 16) {
       HStack(alignment: .center, spacing: 24) {
         AvatarView(
           urlPath: profile?.avatarUrl,
           name: profile?.displayName ?? "Unknown",
-          size: 86
+          size: 88
         )
 
-        HStack(spacing: 20) {
+        HStack(spacing: 0) {
           ProfileStatView(count: flashbacksCount, label: "Flashbacks")
+            .frame(maxWidth: .infinity)
           NavigationLink {
             FriendsView()
           } label: {
             ProfileStatView(count: friendsCount, label: "Friends")
+              .frame(maxWidth: .infinity)
           }
           .buttonStyle(.plain)
         }
-        .frame(maxWidth: .infinity)
-      }
-
-      if let username = profile?.username, !username.isEmpty {
-        Text("@\(username)")
-          .font(.subheadline.weight(.semibold))
       }
 
       if let fullName = profile?.fullName,
          !fullName.isEmpty,
          fullName != profile?.username {
         Text(fullName)
-          .font(.subheadline)
-          .foregroundColor(.gray)
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.primary)
       }
     }
   }
@@ -196,10 +192,11 @@ private struct ProfileStatView: View {
   var body: some View {
     VStack(spacing: 2) {
       Text("\(count)")
-        .font(.headline.weight(.semibold))
+        .font(.title3.weight(.semibold))
+        .foregroundStyle(.primary)
       Text(label)
-        .font(.caption)
-        .foregroundColor(.gray)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
     }
   }
 }
@@ -209,35 +206,42 @@ struct FlashbackGridItemView: View {
 
   var body: some View {
     GeometryReader { geometry in
-      ZStack(alignment: .bottom) {
+      ZStack(alignment: .bottomLeading) {
         // Cover image or default
         Group {
           if let coverPath = flashback.coverThumbnailPath ?? flashback.coverImagePath {
             CachedAsyncImage(storagePath: coverPath, contentMode: .fill)
           } else {
             // No photos - show default album icon
-            Color.gray.opacity(0.2)
+            Rectangle()
+              .fill(Color(.secondarySystemFill))
               .overlay {
                 Image(systemName: "photo.on.rectangle.angled")
-                  .font(.system(size: 30))
-                  .foregroundColor(.gray)
+                  .font(.system(size: 28))
+                  .foregroundStyle(.secondary)
               }
           }
         }
         .frame(width: geometry.size.width, height: geometry.size.width)
 
+        // Scrim for legibility of the name overlay
+        LinearGradient(
+          colors: [.clear, .black.opacity(0.45)],
+          startPoint: .center,
+          endPoint: .bottom
+        )
+
         // Name overlay
         Text(flashback.name)
-          .font(.caption)
-          .fontWeight(.semibold)
-          .foregroundColor(.white)
-          .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
-          .padding(.horizontal, 6)
-          .padding(.bottom, 6)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.white)
+          .lineLimit(1)
+          .padding(.horizontal, 8)
+          .padding(.bottom, 8)
       }
       .frame(width: geometry.size.width, height: geometry.size.width)
       .clipped()
-      .clipShape(RoundedRectangle(cornerRadius: 8))
+      .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
     .aspectRatio(1, contentMode: .fit)
   }
