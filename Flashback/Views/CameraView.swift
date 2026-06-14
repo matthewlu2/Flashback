@@ -25,7 +25,12 @@ struct CameraView: View {
         ZStack {
 
             if cameraManager.authorizationStatus == .authorized {
-                CameraPreview(session: cameraManager.session).ignoresSafeArea()
+                CameraPreview(session: cameraManager.session)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        flipCamera()
+                    }
             }
             else {
                 VStack {
@@ -115,7 +120,7 @@ struct CameraView: View {
 
                     // Flip Camera Button - top right
                     Button {
-                        cameraManager.flipCamera()
+                        flipCamera()
                     } label: {
                         Image(systemName: "arrow.triangle.2.circlepath")
                             .font(.system(size: 20, weight: .semibold))
@@ -203,6 +208,12 @@ struct CameraView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    // MARK: - Camera flip
+
+    private func flipCamera() {
+        cameraManager.flipCamera()
     }
 
     // MARK: - Flash

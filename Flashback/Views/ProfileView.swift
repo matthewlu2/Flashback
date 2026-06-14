@@ -7,9 +7,12 @@
 
 import Foundation
 import SwiftUI
+import Supabase
 
 struct ProfileView: View {
   @StateObject private var flashbackManager = FlashbackManager.shared
+  @StateObject private var friendsManager = FriendsManager.shared
+  @State private var profile: Profile?
   @State private var showingSettings = false
   @State private var flashbackToDelete: Flashback?
   @State private var showingDeleteAlert = false
@@ -24,10 +27,18 @@ struct ProfileView: View {
   var body: some View {
     NavigationStack {
       ScrollView {
-        VStack(alignment: .leading) {
-          Text("My Flashbacks")
-            .font(.headline)
+        VStack(alignment: .leading, spacing: 0) {
+          ProfileHeaderView(
+            profile: profile,
+            friendsCount: friendsManager.friends.count,
+            flashbacksCount: flashbackManager.flashbacks.count
+          )
+          .padding(.horizontal)
+          .padding(.top)
+
+          Divider()
             .padding(.horizontal)
+            .padding(.vertical, 12)
 
           if flashbackManager.flashbacks.isEmpty && !flashbackManager.isLoading {
             Text("No flashbacks yet")
@@ -51,17 +62,10 @@ struct ProfileView: View {
             }
           }
         }
-        .padding(.top)
       }
-      .navigationTitle("Profile")
+      .navigationTitle("")
+      .navigationBarTitleDisplayMode(.inline)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) {
-          NavigationLink {
-            FriendsView()
-          } label: {
-            Image(systemName: "person.2")
-          }
-        }
         ToolbarItem(placement: .topBarTrailing) {
           Button {
             showingSettings = true
@@ -70,7 +74,9 @@ struct ProfileView: View {
           }
         }
       }
-      .sheet(isPresented: $showingSettings) {
+      .sheet(isPresented: $showingSettings, onDismiss: {
+        Task { await loadProfile() }
+      }) {
         SettingsView()
       }
       .alert("Delete Flashback", isPresented: $showingDeleteAlert) {
@@ -95,7 +101,26 @@ struct ProfileView: View {
       }
     }
     .task {
-      await flashbackManager.loadFlashbacksIfNeeded()
+      async let flashbacks: Void = flashbackManager.loadFlashbacksIfNeeded()
+      async let friends: Void = friendsManager.refresh()
+      async let profileLoad: Void = loadProfile()
+      _ = await (flashbacks, friends, profileLoad)
+    }
+  }
+
+  private func loadProfile() async {
+    do {
+      let currentUser = try await supabase.auth.session.user
+      let loaded: Profile = try await supabase
+        .from("profiles")
+        .select()
+        .eq("id", value: currentUser.id)
+        .single()
+        .execute()
+        .value
+      profile = loaded
+    } catch {
+      debugPrint(error)
     }
   }
 
@@ -118,6 +143,63 @@ struct ProfileView: View {
         deleteError = "Failed to delete flashback: \(error.localizedDescription)"
       }
       flashbackToDelete = nil
+    }
+  }
+}
+
+private struct ProfileHeaderView: View {
+  let profile: Profile?
+  let friendsCount: Int
+  let flashbacksCount: Int
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .center, spacing: 24) {
+        AvatarView(
+          urlPath: profile?.avatarUrl,
+          name: profile?.displayName ?? "Unknown",
+          size: 86
+        )
+
+        HStack(spacing: 20) {
+          ProfileStatView(count: flashbacksCount, label: "Flashbacks")
+          NavigationLink {
+            FriendsView()
+          } label: {
+            ProfileStatView(count: friendsCount, label: "Friends")
+          }
+          .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+      }
+
+      if let username = profile?.username, !username.isEmpty {
+        Text("@\(username)")
+          .font(.subheadline.weight(.semibold))
+      }
+
+      if let fullName = profile?.fullName,
+         !fullName.isEmpty,
+         fullName != profile?.username {
+        Text(fullName)
+          .font(.subheadline)
+          .foregroundColor(.gray)
+      }
+    }
+  }
+}
+
+private struct ProfileStatView: View {
+  let count: Int
+  let label: String
+
+  var body: some View {
+    VStack(spacing: 2) {
+      Text("\(count)")
+        .font(.headline.weight(.semibold))
+      Text(label)
+        .font(.caption)
+        .foregroundColor(.gray)
     }
   }
 }

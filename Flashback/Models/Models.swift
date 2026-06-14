@@ -119,6 +119,12 @@ struct Profile: Decodable {
     case phone
     case onboardingCompleted = "onboarding_completed"
   }
+
+  var displayName: String {
+    if let username, !username.isEmpty { return username }
+    if let fullName, !fullName.isEmpty { return fullName }
+    return "Unknown"
+  }
 }
 struct UpdateProfileParams: Encodable {
   let username: String
