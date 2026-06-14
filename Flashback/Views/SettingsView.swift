@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State var fullName = ""
     @State var website = ""
     @State var isLoading = false
+    @State var profileError: String?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -28,6 +29,14 @@ struct SettingsView: View {
                     TextField("Website", text: $website)
                         .textContentType(.URL)
                         .textInputAutocapitalization(.never)
+                }
+
+                if let profileError {
+                    Section {
+                        Text(profileError)
+                            .foregroundStyle(.red)
+                            .font(.caption)
+                    }
                 }
 
                 Section {
@@ -86,6 +95,13 @@ struct SettingsView: View {
 
     func updateProfileButtonTapped() {
         Task {
+            profileError = nil
+            let normalized = UsernameValidator.normalize(username)
+            if let validationError = UsernameValidator.validationError(for: normalized) {
+                profileError = validationError
+                return
+            }
+
             isLoading = true
             defer { isLoading = false }
             do {
@@ -95,14 +111,20 @@ struct SettingsView: View {
                     .from("profiles")
                     .update(
                         UpdateProfileParams(
-                            username: username,
+                            username: normalized,
                             fullName: fullName,
                             website: website
                         )
                     )
                     .eq("id", value: currentUser.id)
                     .execute()
+                username = normalized
             } catch {
+                if UsernameValidator.isDuplicateUsernameError(error) {
+                    profileError = "Username is already taken."
+                } else {
+                    profileError = "Couldn't update your profile. Please try again."
+                }
                 debugPrint(error)
             }
         }

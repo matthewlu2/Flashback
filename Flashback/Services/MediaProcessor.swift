@@ -36,6 +36,46 @@ enum MediaProcessor {
         return thumb.jpegData(compressionQuality: quality)
     }
 
+    /// Renders the portion of `image` visible inside a circular crop, exported as a square bitmap.
+    static func croppedSquareImage(
+        from image: UIImage,
+        scale: CGFloat,
+        offset: CGSize,
+        cropDiameter: CGFloat,
+        outputMaxDimension: CGFloat = 512
+    ) -> UIImage? {
+        let imageSize = image.size
+        guard imageSize.width > 0, imageSize.height > 0 else { return nil }
+
+        let baseScale = max(cropDiameter / imageSize.width, cropDiameter / imageSize.height)
+        let totalScale = baseScale * scale
+        let drawWidth = imageSize.width * totalScale
+        let drawHeight = imageSize.height * totalScale
+        let outputScale = outputMaxDimension / cropDiameter
+
+        let outputSize = CGSize(width: outputMaxDimension, height: outputMaxDimension)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: outputSize, format: format)
+
+        return renderer.image { context in
+            let cgContext = context.cgContext
+            cgContext.addEllipse(in: CGRect(origin: .zero, size: outputSize))
+            cgContext.clip()
+
+            let origin = CGPoint(
+                x: (outputSize.width - drawWidth * outputScale) / 2 + offset.width * outputScale,
+                y: (outputSize.height - drawHeight * outputScale) / 2 + offset.height * outputScale
+            )
+            image.draw(in: CGRect(
+                x: origin.x,
+                y: origin.y,
+                width: drawWidth * outputScale,
+                height: drawHeight * outputScale
+            ))
+        }
+    }
+
     // MARK: - Video
 
     /// Extracts a poster frame from the start of a video.

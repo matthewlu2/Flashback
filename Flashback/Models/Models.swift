@@ -7,6 +7,101 @@
 
 import Foundation
 
+enum UsernameValidator {
+  static let minLength = 3
+  static let maxLength = 30
+  private static let allowedCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789_.")
+
+  static func normalize(_ raw: String) -> String {
+    raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+
+  static func validationError(for raw: String) -> String? {
+    let normalized = normalize(raw)
+    if normalized.count < minLength {
+      return "Username must be at least \(minLength) characters."
+    }
+    if normalized.count > maxLength {
+      return "Username must be at most \(maxLength) characters."
+    }
+    if normalized.unicodeScalars.contains(where: { !allowedCharacters.contains($0) }) {
+      return "Use only letters, numbers, underscores, and periods."
+    }
+    return nil
+  }
+
+  static func isDuplicateUsernameError(_ error: Error) -> Bool {
+    let message = error.localizedDescription.lowercased()
+    return message.contains("duplicate key")
+      || message.contains("profiles_username_key")
+      || message.contains("unique constraint")
+  }
+}
+
+enum PhoneValidator {
+  private static let allowedCharacters = CharacterSet(charactersIn: "0123456789+()- .")
+
+  static func validationError(for raw: String) -> String? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return nil }
+
+    if trimmed.unicodeScalars.contains(where: { !allowedCharacters.contains($0) }) {
+      return "Use only numbers and phone formatting characters (+, spaces, dashes, parentheses)."
+    }
+
+    if validatedNormalized(trimmed) == nil {
+      return "Please enter a valid phone number."
+    }
+    return nil
+  }
+
+  /// Returns a normalized E.164-style number when the input is valid, otherwise nil.
+  static func validatedNormalized(_ raw: String) -> String? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    guard !trimmed.unicodeScalars.contains(where: { !allowedCharacters.contains($0) }) else {
+      return nil
+    }
+
+    let hasPlus = trimmed.hasPrefix("+")
+    let digits = trimmed.filter(\.isNumber)
+
+    if hasPlus {
+      guard (8...15).contains(digits.count), digits.first != "0" else { return nil }
+      if digits.hasPrefix("1") {
+        guard digits.count == 11, isValidNANP(String(digits.dropFirst())) else { return nil }
+      }
+      return "+" + digits
+    }
+
+    if digits.count == 10 {
+      guard isValidNANP(digits) else { return nil }
+      return "+" + PhoneNormalizer.defaultCountryCode + digits
+    }
+
+    if digits.count == 11, digits.hasPrefix(PhoneNormalizer.defaultCountryCode) {
+      guard isValidNANP(String(digits.dropFirst())) else { return nil }
+      return "+" + digits
+    }
+
+    return nil
+  }
+
+  static func isDuplicatePhoneError(_ error: Error) -> Bool {
+    let message = error.localizedDescription.lowercased()
+    return message.contains("duplicate key")
+      || message.contains("profiles_phone_normalized_key")
+      || message.contains("unique constraint")
+  }
+
+  private static func isValidNANP(_ tenDigits: String) -> Bool {
+    guard tenDigits.count == 10, tenDigits.allSatisfy(\.isNumber) else { return false }
+    let digits = Array(tenDigits)
+    return digits[0] >= "2" && digits[0] <= "9"
+      && digits[3] >= "2" && digits[3] <= "9"
+  }
+}
+
 struct Profile: Decodable {
   let id: UUID?
   let username: String?

@@ -289,6 +289,7 @@
 				INFOPLIST_KEY_NSContactsUsageDescription = "Flashback uses your contacts to help you find friends who are already on Flashback.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need microphone access to record video with audio.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save photos and videos you capture";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose a profile photo for your account.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -328,6 +329,7 @@
 				INFOPLIST_KEY_NSContactsUsageDescription = "Flashback uses your contacts to help you find friends who are already on Flashback.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need microphone access to record video with audio.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save photos and videos you capture";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose a profile photo for your account.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
