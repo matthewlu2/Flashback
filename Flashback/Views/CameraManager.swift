@@ -35,9 +35,23 @@ class CameraManager: NSObject, ObservableObject {
     private var audioInput: AVCaptureDeviceInput?
 
     private let sessionQueue = DispatchQueue(label: "com.customcamera.sessionQueue")
-    
+
+    /// Preview layer, supplied by `CameraPreview`, used to convert tap locations
+    /// in the view into the camera's normalized point of interest.
+    weak var previewLayer: AVCaptureVideoPreviewLayer?
+
     override init() {
         super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(subjectAreaDidChange(_:)),
+            name: .AVCaptureDeviceSubjectAreaDidChange,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     
     func checkAuthorization() {
@@ -217,6 +231,81 @@ class CameraManager: NSObject, ObservableObject {
 
             self.session.commitConfiguration()
         }
+    }
+
+    // MARK: - Focus & Exposure
+
+    /// Focuses (and sets exposure) at a point in the preview's coordinate space.
+    /// The point is converted to the camera's normalized device space via the
+    /// preview layer before being applied on the session queue.
+    func focus(atLayerPoint layerPoint: CGPoint) {
+        guard let previewLayer else { return }
+        let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: layerPoint)
+
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.currentInput?.device else { return }
+
+            do {
+                try device.lockForConfiguration()
+
+                if device.isFocusPointOfInterestSupported && device.isFocusModeSupported(.autoFocus) {
+                    device.focusPointOfInterest = devicePoint
+                    device.focusMode = .autoFocus
+                }
+
+                if device.isExposurePointOfInterestSupported && device.isExposureModeSupported(.autoExpose) {
+                    device.exposurePointOfInterest = devicePoint
+                    device.exposureMode = .autoExpose
+                }
+
+                // Lock onto this point and let the system tell us (via
+                // subjectAreaDidChangeNotification) when the scene changes
+                // enough to warrant resuming continuous autofocus.
+                device.isSubjectAreaChangeMonitoringEnabled = true
+
+                device.unlockForConfiguration()
+            } catch {
+                print("focus error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Returns focus and exposure to continuous (full-frame) auto mode, used a
+    /// moment after a tap-to-focus so the camera drifts back to tracking.
+    func resumeContinuousFocus() {
+        sessionQueue.async { [weak self] in
+            guard let self, let device = self.currentInput?.device else { return }
+
+            do {
+                try device.lockForConfiguration()
+
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+                if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                }
+
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+                if device.isExposureModeSupported(.continuousAutoExposure) {
+                    device.exposureMode = .continuousAutoExposure
+                }
+
+                device.isSubjectAreaChangeMonitoringEnabled = false
+
+                device.unlockForConfiguration()
+            } catch {
+                print("resumeContinuousFocus error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Fired when the camera detects the focused subject area has changed
+    /// significantly; resume full-frame continuous autofocus.
+    @objc private func subjectAreaDidChange(_ notification: Notification) {
+        resumeContinuousFocus()
     }
 
     // MARK: - Device selection

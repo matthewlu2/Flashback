@@ -10,21 +10,26 @@ import SwiftUI
 import AVFoundation
 
 struct CameraPreview: UIViewRepresentable {
-    
+
     let session: AVCaptureSession
+    /// Called once the preview layer is created so the owner can convert
+    /// view coordinates to camera device points (used for tap-to-focus).
+    var onPreviewLayerReady: ((AVCaptureVideoPreviewLayer) -> Void)? = nil
+
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
         view.backgroundColor = .black
-        
+
         let previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspectFill
         previewLayer.frame = view.bounds
         view.layer.addSublayer(previewLayer)
-        
+
         //store layer in context
-        
+
         context.coordinator.previewLayer = previewLayer
-        
+        onPreviewLayerReady?(previewLayer)
+
         return view
     }
     

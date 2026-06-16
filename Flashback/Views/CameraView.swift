@@ -21,19 +21,32 @@ struct CameraView: View {
     @State private var gestureStartZoom: CGFloat = 1.0
     @State private var isPinching = false
 
+    // Tap-to-focus indicator
+    @State private var focusPoint: CGPoint?
+    @State private var focusVisible = false
+    @State private var focusResetTask: Task<Void, Never>?
+
     private static let lastFlashbackKey = "lastSelectedFlashbackId"
 
     var body: some View {
         ZStack {
 
             if cameraManager.authorizationStatus == .authorized {
-                CameraPreview(session: cameraManager.session)
+                CameraPreview(session: cameraManager.session) { layer in
+                    cameraManager.previewLayer = layer
+                }
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
-                        flipCamera()
-                    }
                     .gesture(
+                        // Double tap flips; a single tap focuses where you touch.
+                        SpatialTapGesture(count: 2)
+                            .onEnded { _ in flipCamera() }
+                            .exclusively(before:
+                                SpatialTapGesture(count: 1)
+                                    .onEnded { value in handleFocusTap(at: value.location) }
+                            )
+                    )
+                    .simultaneousGesture(
                         MagnificationGesture()
                             .onChanged { scale in
                                 if !isPinching {
@@ -46,6 +59,14 @@ struct CameraView: View {
                                 isPinching = false
                             }
                     )
+
+                // Tap-to-focus indicator
+                if let focusPoint {
+                    FocusReticle()
+                        .position(focusPoint)
+                        .opacity(focusVisible ? 1 : 0)
+                        .allowsHitTesting(false)
+                }
             }
             else {
                 VStack {
@@ -109,6 +130,8 @@ struct CameraView: View {
                             .contentShape(Rectangle())
                             .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
                     }
+                    .disabled(cameraManager.isRecording)
+                    .opacity(cameraManager.isRecording ? 0 : 1)
 
                     // Flash toggle
                     Button {
@@ -142,6 +165,8 @@ struct CameraView: View {
                                     .offset(x: -2, y: 2)
                             }
                     }
+                    .disabled(cameraManager.isRecording)
+                    .opacity(cameraManager.isRecording ? 0 : 1)
                 }
                 .padding(.trailing, 8)
               }
@@ -153,9 +178,12 @@ struct CameraView: View {
             VStack {
                 Spacer()
 
-                // Zoom controls
-                zoomControl
-                    .padding(.bottom, 20)
+                // Zoom controls (hidden while recording)
+                if !cameraManager.isRecording {
+                    zoomControl
+                        .padding(.bottom, 20)
+                        .transition(.opacity)
+                }
 
                 // Capture Button
                 ShutterButton(
@@ -172,6 +200,7 @@ struct CameraView: View {
                 )
                 .padding(.bottom, 40)
             }
+            .animation(.easeOut(duration: 0.2), value: cameraManager.isRecording)
             .sheet(item: $cameraManager.capturedImage) { item in
                 MediaPreviewView(
                     media: .photo(item.image),
@@ -297,6 +326,31 @@ struct CameraView: View {
         cameraManager.flipCamera()
     }
 
+    // MARK: - Tap to focus
+
+    private func handleFocusTap(at location: CGPoint) {
+        cameraManager.focus(atLayerPoint: location)
+        showFocusIndicator(at: location)
+    }
+
+    private func showFocusIndicator(at location: CGPoint) {
+        focusResetTask?.cancel()
+        focusPoint = location
+        focusVisible = true
+
+        focusResetTask = Task {
+            try? await Task.sleep(for: .seconds(0.5))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    focusVisible = false
+                }
+                // Focus stays locked at the tapped point; CameraManager resumes
+                // continuous autofocus only when the subject area changes.
+            }
+        }
+    }
+
     // MARK: - Flash
 
     private var flashMode: AVCaptureDevice.FlashMode {
@@ -360,6 +414,21 @@ struct CameraView: View {
     }
 }
 
+// MARK: - Focus Reticle
+
+/// A small white circle shown briefly where the user taps to focus.
+private struct FocusReticle: View {
+    var body: some View {
+        Circle()
+            .fill(Color.white.opacity(0.2))
+            .overlay(
+                Circle().stroke(Color.white, lineWidth: 1.5)
+            )
+            .frame(width: 44, height: 44)
+            .shadow(color: .black.opacity(0.4), radius: 2)
+    }
+}
+
 // MARK: - Shutter Button
 
 private struct ShutterButton: View {
@@ -369,7 +438,15 @@ private struct ShutterButton: View {
     let onLongPressEnd: () -> Void
 
     @State private var isPressed = false
+    @State private var isLocked = false
+    /// True only for the single release that establishes the lock, so lifting
+    /// the finger after a swipe-up doesn't immediately stop the recording.
+    @State private var justLocked = false
+    @State private var currentTranslation: CGFloat = 0
     @State private var longPressTask: Task<Void, Never>?
+
+    /// How far (points) the finger must travel up while recording to lock.
+    private let lockThreshold: CGFloat = 60
 
     var body: some View {
         ZStack {
@@ -380,7 +457,7 @@ private struct ShutterButton: View {
 
             // Inner circle
             if isRecording {
-                RoundedRectangle(cornerRadius: 8)
+                Circle()
                     .fill(.red)
                     .frame(width: 32, height: 32)
             } else {
@@ -390,28 +467,76 @@ private struct ShutterButton: View {
                     .scaleEffect(isPressed ? 0.88 : 1.0)
             }
         }
+        .frame(width: 74, height: 74)
         .shadow(color: .black.opacity(0.3), radius: 6)
+        .overlay(alignment: .top) {
+            // Swipe-up hint while holding; turns into a lock badge once locked.
+            if isRecording {
+                VStack(spacing: 2) {
+                    Image(systemName: isLocked ? "lock.fill" : "chevron.up")
+                        .font(.system(size: 13, weight: .bold))
+                    Text(isLocked ? "Locked — tap to stop" : "Swipe up to lock")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(isLocked ? .yellow : .white)
+                .shadow(color: .black.opacity(0.5), radius: 3)
+                .fixedSize()
+                .offset(y: -48)
+                .transition(.opacity)
+            }
+        }
         .animation(.easeOut(duration: 0.15), value: isPressed)
-        .animation(.easeOut(duration: 0.15), value: isRecording)
+        .animation(.easeOut(duration: 0.2), value: isRecording)
+        .animation(.easeOut(duration: 0.2), value: isLocked)
         .contentShape(Circle())
         .gesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in
+                .onChanged { value in
+                    currentTranslation = value.translation.height
+
+                    // While locked, ignore drag movement; a fresh tap (handled
+                    // in onEnded) is what stops the recording.
+                    guard !isLocked else { return }
+
                     if !isPressed && !isRecording {
                         isPressed = true
                         longPressTask = Task {
                             try? await Task.sleep(for: .milliseconds(300))
-                            if !Task.isCancelled {
-                                await MainActor.run {
-                                    onLongPressStart()
+                            guard !Task.isCancelled else { return }
+                            await MainActor.run {
+                                onLongPressStart()
+                                // Catch the case where the user already swiped
+                                // up during the hold before recording began.
+                                if currentTranslation < -lockThreshold {
+                                    lockRecording()
                                 }
                             }
                         }
                     }
+
+                    // Swipe far enough up while recording to lock hands-free.
+                    if isRecording && value.translation.height < -lockThreshold {
+                        lockRecording()
+                    }
                 }
                 .onEnded { _ in
-                    isPressed = false
                     longPressTask?.cancel()
+                    currentTranslation = 0
+
+                    if isLocked {
+                        if justLocked {
+                            // This release just engaged the lock; keep recording.
+                            justLocked = false
+                        } else {
+                            // A subsequent tap while locked stops recording.
+                            isLocked = false
+                            onLongPressEnd()
+                        }
+                        isPressed = false
+                        return
+                    }
+
+                    isPressed = false
 
                     if isRecording {
                         onLongPressEnd()
@@ -420,6 +545,20 @@ private struct ShutterButton: View {
                     }
                 }
         )
+        .onChange(of: isRecording) { _, recording in
+            // Reset lock state whenever recording ends for any reason.
+            if !recording {
+                isLocked = false
+                justLocked = false
+                isPressed = false
+            }
+        }
+    }
+
+    private func lockRecording() {
+        isLocked = true
+        justLocked = true
+        isPressed = false
     }
 }
 
