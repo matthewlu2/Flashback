@@ -45,7 +45,7 @@ class CameraManager: NSObject, ObservableObject {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(subjectAreaDidChange(_:)),
-            name: .AVCaptureDeviceSubjectAreaDidChange,
+            name: AVCaptureDevice.subjectAreaDidChangeNotification,
             object: nil
         )
     }
@@ -125,7 +125,9 @@ class CameraManager: NSObject, ObservableObject {
             // Photo output
             if self.session.canAddOutput(self.photoOutput) {
                 self.session.addOutput(self.photoOutput)
-                self.photoOutput.isHighResolutionCaptureEnabled = true
+                if let maxDimensions = camera.activeFormat.supportedMaxPhotoDimensions.last {
+                    self.photoOutput.maxPhotoDimensions = maxDimensions
+                }
                 self.photoOutput.maxPhotoQualityPrioritization = .quality
             }
 
@@ -159,8 +161,10 @@ class CameraManager: NSObject, ObservableObject {
                 settings.flashMode = flashMode
             }
 
-            if self.photoOutput.isHighResolutionCaptureEnabled {
-                settings.isHighResolutionPhotoEnabled = true
+            // Capture at the current device's full resolution, bounded by what the
+            // photo output is configured to support.
+            if let maxDimensions = self.currentInput?.device.activeFormat.supportedMaxPhotoDimensions.last {
+                settings.maxPhotoDimensions = maxDimensions
             }
 
             self.photoOutput.capturePhoto(with: settings, delegate: self)
@@ -446,25 +450,22 @@ class CameraManager: NSObject, ObservableObject {
 // MARK: - Photo Capture Delegate
 
 extension CameraManager: AVCapturePhotoCaptureDelegate {
-    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+    nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error = error {
             print("Photo capture error \(error.localizedDescription)")
             return
         }
-        
+
         guard let imageData = photo.fileDataRepresentation(),
-              var uiImage = UIImage(data: imageData) else {
+              let uiImage = UIImage(data: imageData) else {
             print("Failed to convert photo to image")
             return
         }
 
-        if currentPosition == .front {
-            uiImage = uiImage.mirrored() ?? uiImage
-        }
-        
-        let finalImage = uiImage
-        DispatchQueue.main.async { [weak self] in
-            self?.capturedImage = IdentifiableImage(image: finalImage)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let finalImage = self.currentPosition == .front ? (uiImage.mirrored() ?? uiImage) : uiImage
+            self.capturedImage = IdentifiableImage(image: finalImage)
         }
     }
 }
@@ -472,14 +473,14 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
 // MARK: - Video Recording Delegate
 
 extension CameraManager: AVCaptureFileOutputRecordingDelegate {
-    func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
-        DispatchQueue.main.async { [weak self] in
+    nonisolated func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
+        Task { @MainActor [weak self] in
             self?.isRecording = true
         }
     }
 
-    func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
-        DispatchQueue.main.async { [weak self] in
+    nonisolated func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
+        Task { @MainActor [weak self] in
             self?.isRecording = false
 
             if let error = error {

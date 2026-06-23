@@ -80,21 +80,17 @@ enum MediaProcessor {
 
     /// Extracts a poster frame from the start of a video.
     static func posterFrame(forVideo url: URL) async -> UIImage? {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let asset = AVURLAsset(url: url)
-                let generator = AVAssetImageGenerator(asset: asset)
-                generator.appliesPreferredTrackTransform = true
-                generator.maximumSize = CGSize(width: 800, height: 800)
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 800, height: 800)
 
-                do {
-                    let cgImage = try generator.copyCGImage(at: .zero, actualTime: nil)
-                    continuation.resume(returning: UIImage(cgImage: cgImage))
-                } catch {
-                    print("Failed to generate poster frame: \(error.localizedDescription)")
-                    continuation.resume(returning: nil)
-                }
-            }
+        do {
+            let (cgImage, _) = try await generator.image(at: .zero)
+            return UIImage(cgImage: cgImage)
+        } catch {
+            print("Failed to generate poster frame: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -110,18 +106,13 @@ enum MediaProcessor {
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mp4")
 
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
 
-        await exportSession.export()
-
-        if exportSession.status == .completed {
+        do {
+            try await exportSession.export(to: outputURL, as: .mp4)
             return outputURL
-        } else {
-            if let error = exportSession.error {
-                print("Video compression failed: \(error.localizedDescription)")
-            }
+        } catch {
+            print("Video compression failed: \(error.localizedDescription)")
             return inputURL
         }
     }

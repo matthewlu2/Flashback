@@ -43,7 +43,7 @@ enum MediaBackfill {
                     }
 
                     if let thumbnailPath = await generateThumbnail(for: photo, userId: userId) {
-                        try? await supabase
+                        _ = try? await supabase
                             .from("flashback_photos")
                             .update(["thumbnail_path": thumbnailPath])
                             .eq("id", value: photo.id)
@@ -57,7 +57,7 @@ enum MediaBackfill {
                 if flashback.coverThumbnailPath == nil,
                    let coverPath = flashback.coverImagePath,
                    let coverThumb = thumbnailByStoragePath[coverPath] {
-                    try? await supabase
+                    _ = try? await supabase
                         .from("flashbacks")
                         .update(["cover_thumbnail_path": coverThumb])
                         .eq("id", value: flashback.id)

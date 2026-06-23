@@ -291,8 +291,18 @@ final class AppleSignInCoordinator: NSObject,
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
-            .windows.first ?? ASPresentationAnchor()
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windowScene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+
+        guard let windowScene else {
+            // A foreground window scene always exists while presenting sign-in;
+            // iOS 26 offers no non-scene way to build an anchor.
+            preconditionFailure("No active UIWindowScene available for presentation")
+        }
+
+        return windowScene.windows.first { $0.isKeyWindow }
+            ?? windowScene.windows.first
+            ?? ASPresentationAnchor(windowScene: windowScene)
     }
 }
 

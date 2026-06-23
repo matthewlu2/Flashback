@@ -169,6 +169,39 @@ struct CreateFlashbackParams: Encodable {
   }
 }
 
+/// The kind of flashback the user is creating. UI-only for now (not persisted to the backend).
+enum AlbumType: String, CaseIterable, Identifiable {
+  case vacation
+  case party
+  case normal
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .vacation: return "Vacation Trip"
+    case .party:    return "Party"
+    case .normal:   return "Album"
+    }
+  }
+
+  var subtitle: String {
+    switch self {
+    case .vacation: return "Capture moments from a trip"
+    case .party:    return "Relive a celebration together"
+    case .normal:   return "A simple shared album"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .vacation: return "airplane"
+    case .party:    return "party.popper"
+    case .normal:   return "photo.on.rectangle"
+    }
+  }
+}
+
 enum MediaType: String, Codable {
   case photo
   case video
