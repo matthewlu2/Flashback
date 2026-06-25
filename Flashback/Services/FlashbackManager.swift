@@ -160,7 +160,18 @@ class FlashbackManager: ObservableObject {
         }
     }
 
-    func deletePhoto(_ photo: FlashbackPhoto) async throws {
+    func deletePhoto(_ photo: FlashbackPhoto, isAlbumOwner: Bool = false) async throws {
+        // The uploader or the album owner may delete media (matches the DB/storage
+        // RLS policies). The UI enforces this too, but guard here so the rule holds
+        // regardless of the calling entry point.
+        guard let me = await currentUserId(), photo.uploadedBy == me || isAlbumOwner else {
+            throw NSError(
+                domain: "FlashbackManager",
+                code: 403,
+                userInfo: [NSLocalizedDescriptionKey: "You can only delete photos you added."]
+            )
+        }
+
         // Delete from storage (original + thumbnail)
         var pathsToRemove = [photo.storagePath]
         if let thumbnailPath = photo.thumbnailPath {

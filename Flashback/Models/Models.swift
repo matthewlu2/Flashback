@@ -260,14 +260,12 @@ struct CreateFlashbackPhotoParams: Encodable {
 /// What an album's media grid is sorted by.
 enum MediaSortField: String, CaseIterable, Identifiable {
   case takenAt
-  case uploadedAt
 
   var id: String { rawValue }
 
   var title: String {
     switch self {
-    case .takenAt:    return "Date Taken"
-    case .uploadedAt: return "Date Added"
+    case .takenAt: return "Date Taken"
     }
   }
 }

@@ -16,6 +16,14 @@ struct IncomingFriendRequest: Identifiable {
     var id: UUID { friendship.id }
 }
 
+/// The current user's relationship to another user, used to label discovery rows.
+enum FriendRelationship {
+    case none
+    case friends
+    case requestSent
+    case requestReceived
+}
+
 @MainActor
 class FriendsManager: ObservableObject {
     static let shared = FriendsManager()
@@ -155,6 +163,14 @@ class FriendsManager: ObservableObject {
     }
 
     // MARK: - Discovery
+
+    /// The current user's relationship to the given user, based on cached friend state.
+    func relationship(with userId: UUID) -> FriendRelationship {
+        if friends.contains(where: { $0.id == userId }) { return .friends }
+        if outgoingRequestIds.contains(userId) { return .requestSent }
+        if incomingRequests.contains(where: { $0.profile.id == userId }) { return .requestReceived }
+        return .none
+    }
 
     func searchByUsername(_ username: String) async throws -> [PublicProfile] {
         let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)

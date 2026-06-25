@@ -35,5 +35,7 @@
 	</array>
 	<key>GIDClientID</key>
 	<string>172538412994-q2ek5sg6hponppehvtb6ju0k7la3bei3.apps.googleusercontent.com</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Flashback saves photos and videos from your albums to your camera roll.</string>
 </dict>
 </plist>

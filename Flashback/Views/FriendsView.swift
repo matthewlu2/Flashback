@@ -162,6 +162,9 @@ struct AddFriendsView: View {
             .onChange(of: query) { _, _ in
                 runSearch()
             }
+            .task {
+                await manager.refresh()
+            }
         }
     }
 
@@ -175,24 +178,54 @@ struct AddFriendsView: View {
                 }
             }
             Spacer()
-            let isSent = sentIds.contains(profile.id)
-            Button {
-                Task {
-                    try? await manager.sendRequest(to: profile.id)
-                    sentIds.insert(profile.id)
-                }
-            } label: {
-                Text(isSent ? "Requested" : "Add")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(isSent ? .gray : .white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(isSent ? Color.gray.opacity(0.2) : Color.blue)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(isSent)
+            trailingControl(for: profile)
         }
+    }
+
+    @ViewBuilder
+    private func trailingControl(for profile: PublicProfile) -> some View {
+        // Combine persisted relationship state with requests sent this session.
+        let relationship = manager.relationship(with: profile.id)
+        let justSent = sentIds.contains(profile.id)
+
+        switch relationship {
+        case .friends:
+            statusLabel("Friends")
+        case .requestReceived:
+            statusLabel("Requested you")
+        case .requestSent:
+            statusLabel("Requested")
+        case .none:
+            if justSent {
+                statusLabel("Requested")
+            } else {
+                Button {
+                    Task {
+                        try? await manager.sendRequest(to: profile.id)
+                        sentIds.insert(profile.id)
+                    }
+                } label: {
+                    Text("Add")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(Color.blue)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func statusLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundColor(.gray)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(Color.gray.opacity(0.2))
+            .clipShape(Capsule())
     }
 
     private func runSearch() {

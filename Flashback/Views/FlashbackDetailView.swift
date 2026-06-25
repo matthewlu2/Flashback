@@ -22,6 +22,15 @@ struct FlashbackDetailView: View {
     @State private var showingCoverPicker = false
     @State private var isOwner = false
 
+    // Current user (for media ownership checks) & multi-select state.
+    @State private var currentUserId: UUID?
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<UUID> = []
+    @State private var showingNotYoursAlert = false
+    @State private var showingBulkDeleteConfirm = false
+    @State private var saveResultMessage: String?
+    @State private var isSaving = false
+
     // Sorting & filtering state (per-view, not persisted).
     @State private var sortField: MediaSortField = .takenAt
     @State private var sortAscending = false
@@ -50,10 +59,20 @@ struct FlashbackDetailView: View {
             }
         }
         return result.sorted { a, b in
-            let lhs = sortField == .takenAt ? a.effectiveTakenAt : a.createdAt
-            let rhs = sortField == .takenAt ? b.effectiveTakenAt : b.createdAt
-            return sortAscending ? lhs < rhs : lhs > rhs
+            return sortAscending ? a.effectiveTakenAt < b.effectiveTakenAt
+                                 : a.effectiveTakenAt > b.effectiveTakenAt
         }
+    }
+
+    /// True when the current user may delete this media: they uploaded it, or they
+    /// own the album (matches the uploader-or-owner RLS policy).
+    private func canDelete(_ item: FlashbackPhoto) -> Bool {
+        isOwner || (item.uploadedBy != nil && item.uploadedBy == currentUserId)
+    }
+
+    /// The currently selected media items, in displayed order.
+    private var selectedItems: [FlashbackPhoto] {
+        displayedMedia.filter { selectedIDs.contains($0.id) }
     }
 
     var body: some View {
@@ -79,26 +98,38 @@ struct FlashbackDetailView: View {
                 } else {
                     LazyVGrid(columns: columns, spacing: 1) {
                         ForEach(displayedMedia) { item in
-                            MediaGridItem(media: item)
-                                .aspectRatio(1, contentMode: .fit)
+                            MediaGridItem(media: item, isSelecting: isSelecting, isSelected: selectedIDs.contains(item.id))
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    selectedMedia = item
+                                    if isSelecting {
+                                        toggleSelection(item)
+                                    } else {
+                                        selectedMedia = item
+                                    }
                                 }
                                 .contextMenu {
-                                    if isOwner {
+                                    if !isSelecting {
                                         Button {
-                                            setCover(to: item)
+                                            saveSingle(item)
                                         } label: {
-                                            Label("Set as Cover", systemImage: "photo")
+                                            Label("Save to Photos", systemImage: "square.and.arrow.down")
                                         }
-                                    }
-                                    Button(role: .destructive) {
-                                        mediaToDelete = item
-                                        showingDeleteConfirmation = true
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
+                                        if isOwner {
+                                            Button {
+                                                setCover(to: item)
+                                            } label: {
+                                                Label("Set as Cover", systemImage: "photo")
+                                            }
+                                        }
+                                        if canDelete(item) {
+                                            Button(role: .destructive) {
+                                                mediaToDelete = item
+                                                showingDeleteConfirmation = true
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                        }
                                     }
                                 }
                         }
@@ -112,12 +143,32 @@ struct FlashbackDetailView: View {
         .navigationTitle(currentFlashback.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingShare = true
-                } label: {
-                    Image(systemName: "person.crop.circle.badge.plus")
+            if isSelecting {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        exitSelection()
+                    }
                 }
+            } else {
+                if !media.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Select") {
+                            isSelecting = true
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingShare = true
+                    } label: {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionActionBar
             }
         }
         .sheet(isPresented: $showingShare) {
@@ -138,9 +189,31 @@ struct FlashbackDetailView: View {
         } message: {
             Text("Are you sure you want to delete this? This cannot be undone.")
         }
+        .alert("Can't Delete", isPresented: $showingNotYoursAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Some selected photos aren't yours, so they can't be deleted.")
+        }
+        .alert("Delete \(selectedIDs.count) Items", isPresented: $showingBulkDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                deleteSelected()
+            }
+        } message: {
+            Text("Are you sure you want to delete these? This cannot be undone.")
+        }
+        .alert("Save to Photos", isPresented: .init(
+            get: { saveResultMessage != nil },
+            set: { if !$0 { saveResultMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveResultMessage ?? "")
+        }
         .fullScreenCover(item: $selectedMedia) { item in
             MediaFullScreenView(
                 media: item,
+                canDelete: canDelete(item),
                 onDismiss: { selectedMedia = nil },
                 onDelete: { media in
                     deleteMedia(media)
@@ -148,10 +221,19 @@ struct FlashbackDetailView: View {
                 }
             )
         }
+        .overlay {
+            if isSaving {
+                ProgressView().tint(.white)
+                    .padding(24)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+        }
         .task {
             // Resolve ownership first (it's a fast local-session check) so the share sheet
             // and owner-only controls reflect the correct state immediately.
             isOwner = await FlashbackManager.shared.isOwner(of: flashback)
+            currentUserId = await FlashbackManager.shared.currentUserId()
             await loadMedia()
             await loadMembers()
         }
@@ -168,7 +250,7 @@ struct FlashbackDetailView: View {
     private var coverHeader: some View {
         ZStack(alignment: .bottomLeading) {
             Group {
-                if let coverPath = currentFlashback.coverThumbnailPath ?? currentFlashback.coverImagePath {
+                if let coverPath = currentFlashback.coverImagePath ?? currentFlashback.coverThumbnailPath {
                     CachedAsyncImage(storagePath: coverPath, contentMode: .fill)
                 } else {
                     Color.gray.opacity(0.2)
@@ -328,12 +410,117 @@ struct FlashbackDetailView: View {
         }
     }
 
+    // MARK: - Selection action bar
+
+    private var selectionActionBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                saveSelected()
+            } label: {
+                Label("Save (\(selectedIDs.count))", systemImage: "square.and.arrow.down")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .disabled(selectedIDs.isEmpty)
+
+            Button {
+                attemptBulkDelete()
+            } label: {
+                Label("Delete (\(selectedIDs.count))", systemImage: "trash")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .foregroundColor(.red)
+                    .background(Color.red.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .disabled(selectedIDs.isEmpty)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
+
+    // MARK: - Selection actions
+
+    private func toggleSelection(_ item: FlashbackPhoto) {
+        if selectedIDs.contains(item.id) {
+            selectedIDs.remove(item.id)
+        } else {
+            selectedIDs.insert(item.id)
+        }
+    }
+
+    private func exitSelection() {
+        isSelecting = false
+        selectedIDs.removeAll()
+    }
+
+    private func attemptBulkDelete() {
+        // Block the entire delete if any selected item can't be deleted by this user
+        // (i.e. they're not the uploader and don't own the album).
+        if selectedItems.contains(where: { !canDelete($0) }) {
+            showingNotYoursAlert = true
+        } else {
+            showingBulkDeleteConfirm = true
+        }
+    }
+
+    private func saveSingle(_ item: FlashbackPhoto) {
+        Task {
+            isSaving = true
+            defer { isSaving = false }
+            do {
+                try await PhotoLibrarySaver.save(item)
+                saveResultMessage = "Saved to your camera roll."
+            } catch {
+                saveResultMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func saveSelected() {
+        let items = selectedItems
+        guard !items.isEmpty else { return }
+        Task {
+            isSaving = true
+            defer { isSaving = false }
+            let result = await PhotoLibrarySaver.saveAll(items)
+            if result.failed == 0 {
+                saveResultMessage = "Saved \(result.saved) item\(result.saved == 1 ? "" : "s") to your camera roll."
+            } else if result.saved == 0 {
+                saveResultMessage = "Couldn't save \(result.failed) item\(result.failed == 1 ? "" : "s"). Check photo library permissions in Settings."
+            } else {
+                saveResultMessage = "Saved \(result.saved); \(result.failed) couldn't be saved."
+            }
+            exitSelection()
+        }
+    }
+
+    private func deleteSelected() {
+        let items = selectedItems
+        Task {
+            for item in items {
+                do {
+                    try await FlashbackManager.shared.deletePhoto(item, isAlbumOwner: isOwner)
+                    media.removeAll { $0.id == item.id }
+                } catch {
+                    print("Failed to delete: \(error.localizedDescription)")
+                }
+            }
+            exitSelection()
+        }
+    }
+
     // MARK: - Data
 
     private func deleteMedia(_ item: FlashbackPhoto) {
         Task {
             do {
-                try await FlashbackManager.shared.deletePhoto(item)
+                try await FlashbackManager.shared.deletePhoto(item, isAlbumOwner: isOwner)
                 media.removeAll { $0.id == item.id }
             } catch {
                 print("Failed to delete: \(error.localizedDescription)")
@@ -489,8 +676,19 @@ private struct CoverPickerView: View {
 
 private struct MediaGridItem: View {
     let media: FlashbackPhoto
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
 
     var body: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)   // forces a square footprint
+            .overlay {
+                gridContent
+            }
+            .clipped()
+    }
+
+    private var gridContent: some View {
         ZStack {
             CachedAsyncImage(storagePath: media.thumbnailPath ?? media.storagePath, contentMode: .fill)
 
@@ -517,6 +715,21 @@ private struct MediaGridItem: View {
                     )
                 }
             }
+
+            if isSelecting {
+                Color.black.opacity(isSelected ? 0.25 : 0.0)
+                VStack {
+                    HStack {
+                        Spacer()
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 22))
+                            .foregroundColor(isSelected ? .blue : .white)
+                            .background(Circle().fill(.white.opacity(isSelected ? 1 : 0.3)).padding(2))
+                            .padding(6)
+                    }
+                    Spacer()
+                }
+            }
         }
     }
 
@@ -531,6 +744,7 @@ private struct MediaGridItem: View {
 
 struct MediaFullScreenView: View {
     let media: FlashbackPhoto
+    let canDelete: Bool
     let onDismiss: () -> Void
     let onDelete: (FlashbackPhoto) -> Void
 
@@ -539,6 +753,8 @@ struct MediaFullScreenView: View {
     @State private var showingDeleteConfirmation = false
     @State private var player: AVPlayer?
     @State private var photo: UIImage?
+    @State private var isSaving = false
+    @State private var saveResultMessage: String?
 
     var body: some View {
         ZStack {
@@ -599,19 +815,31 @@ struct MediaFullScreenView: View {
 
             // Top bar
             VStack {
-                HStack {
+                HStack(spacing: 12) {
+                    if canDelete {
+                        Button {
+                            showingDeleteConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                        }
+                    }
+
                     Button {
-                        showingDeleteConfirmation = true
+                        save()
                     } label: {
-                        Image(systemName: "trash")
+                        Image(systemName: "square.and.arrow.down")
                             .font(.system(size: 18, weight: .medium))
                             .foregroundColor(.white)
                             .padding(12)
                             .background(.ultraThinMaterial)
                             .clipShape(Circle())
                     }
-                    .padding(.leading, 20)
-                    .padding(.top, 60)
+                    .disabled(isSaving)
 
                     Spacer()
 
@@ -625,10 +853,17 @@ struct MediaFullScreenView: View {
                             .background(.ultraThinMaterial)
                             .clipShape(Circle())
                     }
-                    .padding(.trailing, 20)
-                    .padding(.top, 60)
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 60)
                 Spacer()
+            }
+
+            if isSaving {
+                ProgressView().tint(.white)
+                    .padding(24)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
         .alert("Delete", isPresented: $showingDeleteConfirmation) {
@@ -638,6 +873,27 @@ struct MediaFullScreenView: View {
             }
         } message: {
             Text("Are you sure you want to delete this? This cannot be undone.")
+        }
+        .alert("Save to Photos", isPresented: .init(
+            get: { saveResultMessage != nil },
+            set: { if !$0 { saveResultMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveResultMessage ?? "")
+        }
+    }
+
+    private func save() {
+        Task {
+            isSaving = true
+            defer { isSaving = false }
+            do {
+                try await PhotoLibrarySaver.save(media)
+                saveResultMessage = "Saved to your camera roll."
+            } catch {
+                saveResultMessage = error.localizedDescription
+            }
         }
     }
 }
