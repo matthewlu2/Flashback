@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AVKit
+import PhotosUI
 
 struct FlashbackDetailView: View {
     let flashback: Flashback
@@ -18,7 +19,15 @@ struct FlashbackDetailView: View {
     @State private var showingDeleteConfirmation = false
     @State private var selectedMedia: FlashbackPhoto?
     @State private var showingShare = false
+    @State private var showingCoverPicker = false
     @State private var isOwner = false
+
+    // Sorting & filtering state (per-view, not persisted).
+    @State private var sortField: MediaSortField = .takenAt
+    @State private var sortAscending = false
+    @State private var filterUploaderIds: Set<UUID> = []
+    @State private var mediaTypeFilter: MediaTypeFilter = .all
+    @State private var members: [MemberInfo] = []
 
     private let columns = [
         GridItem(.flexible(), spacing: 1),
@@ -26,33 +35,73 @@ struct FlashbackDetailView: View {
         GridItem(.flexible(), spacing: 1)
     ]
 
+    /// The album, reflecting any cover change made through the shared manager.
+    private var currentFlashback: Flashback {
+        flashbackManager.flashbacks.first { $0.id == flashback.id } ?? flashback
+    }
+
+    /// Media after applying the active filters and sort order.
+    private var displayedMedia: [FlashbackPhoto] {
+        var result = media.filter { mediaTypeFilter.matches($0) }
+        if !filterUploaderIds.isEmpty {
+            result = result.filter { item in
+                guard let uploader = item.uploadedBy else { return false }
+                return filterUploaderIds.contains(uploader)
+            }
+        }
+        return result.sorted { a, b in
+            let lhs = sortField == .takenAt ? a.effectiveTakenAt : a.createdAt
+            let rhs = sortField == .takenAt ? b.effectiveTakenAt : b.createdAt
+            return sortAscending ? lhs < rhs : lhs > rhs
+        }
+    }
+
     var body: some View {
         ScrollView {
-            if isLoading {
-                ProgressView()
-                    .padding(.top, 50)
-            } else if media.isEmpty {
-                Text("No photos or videos in this flashback")
-                    .foregroundColor(.gray)
-                    .padding(.top, 50)
-            } else {
-                LazyVGrid(columns: columns, spacing: 1) {
-                    ForEach(media) { item in
-                        MediaGridItem(media: item)
-                            .aspectRatio(1, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedMedia = item
-                            }
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    mediaToDelete = item
-                                    showingDeleteConfirmation = true
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
+            VStack(spacing: 0) {
+                coverHeader
+
+                if !media.isEmpty {
+                    controlsBar
+                }
+
+                if isLoading {
+                    ProgressView()
+                        .padding(.top, 50)
+                } else if media.isEmpty {
+                    Text("No photos or videos in this flashback")
+                        .foregroundColor(.gray)
+                        .padding(.top, 50)
+                } else if displayedMedia.isEmpty {
+                    Text("No media matches the current filters")
+                        .foregroundColor(.gray)
+                        .padding(.top, 50)
+                } else {
+                    LazyVGrid(columns: columns, spacing: 1) {
+                        ForEach(displayedMedia) { item in
+                            MediaGridItem(media: item)
+                                .aspectRatio(1, contentMode: .fit)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedMedia = item
                                 }
-                            }
+                                .contextMenu {
+                                    if isOwner {
+                                        Button {
+                                            setCover(to: item)
+                                        } label: {
+                                            Label("Set as Cover", systemImage: "photo")
+                                        }
+                                    }
+                                    Button(role: .destructive) {
+                                        mediaToDelete = item
+                                        showingDeleteConfirmation = true
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                        }
                     }
                 }
             }
@@ -60,7 +109,8 @@ struct FlashbackDetailView: View {
         .refreshable {
             await loadMedia()
         }
-        .navigationTitle(flashback.name)
+        .navigationTitle(currentFlashback.name)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -72,6 +122,9 @@ struct FlashbackDetailView: View {
         }
         .sheet(isPresented: $showingShare) {
             ShareFlashbackView(flashback: flashback, isOwner: isOwner)
+        }
+        .sheet(isPresented: $showingCoverPicker) {
+            CoverPickerView(flashback: flashback, media: media)
         }
         .alert("Delete", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
@@ -100,6 +153,7 @@ struct FlashbackDetailView: View {
             // and owner-only controls reflect the correct state immediately.
             isOwner = await FlashbackManager.shared.isOwner(of: flashback)
             await loadMedia()
+            await loadMembers()
         }
         .onReceive(flashbackManager.$lastMediaUpdate) { update in
             // A photo/video finished uploading to an album. Reload if it's this one.
@@ -107,6 +161,174 @@ struct FlashbackDetailView: View {
             Task { await loadMedia() }
         }
     }
+
+    // MARK: - Cover header
+
+    @ViewBuilder
+    private var coverHeader: some View {
+        ZStack(alignment: .bottomLeading) {
+            Group {
+                if let coverPath = currentFlashback.coverThumbnailPath ?? currentFlashback.coverImagePath {
+                    CachedAsyncImage(storagePath: coverPath, contentMode: .fill)
+                } else {
+                    Color.gray.opacity(0.2)
+                        .overlay {
+                            VStack(spacing: 8) {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.system(size: 36))
+                                Text(isOwner ? "Tap to set a cover" : "No cover yet")
+                                    .font(.subheadline)
+                            }
+                            .foregroundColor(.gray)
+                        }
+                }
+            }
+            .frame(height: 300)
+            .frame(maxWidth: .infinity)
+            .clipped()
+
+            // Darkening gradient so the title stays legible over any image.
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.55)],
+                startPoint: .center,
+                endPoint: .bottom
+            )
+            .frame(height: 300)
+            .allowsHitTesting(false)
+
+            HStack(alignment: .bottom) {
+                Text(currentFlashback.name)
+                    .font(.largeTitle.bold())
+                    .foregroundColor(.white)
+                    .shadow(radius: 4)
+
+                Spacer()
+
+                if isOwner {
+                    Button {
+                        showingCoverPicker = true
+                    } label: {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .frame(height: 300)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isOwner { showingCoverPicker = true }
+        }
+    }
+
+    // MARK: - Sort / filter controls
+
+    private var controlsBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                // Sort
+                Menu {
+                    Picker("Sort by", selection: $sortField) {
+                        ForEach(MediaSortField.allCases) { field in
+                            Text(field.title).tag(field)
+                        }
+                    }
+                    Divider()
+                    Picker("Order", selection: $sortAscending) {
+                        Text("Newest first").tag(false)
+                        Text("Oldest first").tag(true)
+                    }
+                } label: {
+                    controlChip(
+                        systemImage: "arrow.up.arrow.down",
+                        text: "\(sortField.title) · \(sortAscending ? "Oldest" : "Newest")",
+                        active: false
+                    )
+                }
+
+                // Filter by uploader
+                Menu {
+                    Button {
+                        filterUploaderIds.removeAll()
+                    } label: {
+                        Label("Everyone", systemImage: filterUploaderIds.isEmpty ? "checkmark" : "")
+                    }
+                    Divider()
+                    ForEach(members) { member in
+                        Button {
+                            toggleUploader(member.userId)
+                        } label: {
+                            Label(
+                                member.displayName,
+                                systemImage: filterUploaderIds.contains(member.userId) ? "checkmark" : ""
+                            )
+                        }
+                    }
+                } label: {
+                    controlChip(
+                        systemImage: "person.2",
+                        text: uploaderFilterLabel,
+                        active: !filterUploaderIds.isEmpty
+                    )
+                }
+
+                // Filter by media type
+                Menu {
+                    Picker("Show", selection: $mediaTypeFilter) {
+                        ForEach(MediaTypeFilter.allCases) { type in
+                            Text(type.title).tag(type)
+                        }
+                    }
+                } label: {
+                    controlChip(
+                        systemImage: "square.grid.2x2",
+                        text: mediaTypeFilter.title,
+                        active: mediaTypeFilter != .all
+                    )
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+    }
+
+    private func controlChip(systemImage: String, text: String, active: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .font(.subheadline.weight(.medium))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(active ? Color.blue.opacity(0.15) : Color(.systemGray6))
+        .foregroundColor(active ? .blue : .primary)
+        .clipShape(Capsule())
+    }
+
+    private var uploaderFilterLabel: String {
+        if filterUploaderIds.isEmpty { return "Everyone" }
+        if filterUploaderIds.count == 1,
+           let id = filterUploaderIds.first,
+           let member = members.first(where: { $0.userId == id }) {
+            return member.displayName
+        }
+        return "\(filterUploaderIds.count) people"
+    }
+
+    private func toggleUploader(_ id: UUID) {
+        if filterUploaderIds.contains(id) {
+            filterUploaderIds.remove(id)
+        } else {
+            filterUploaderIds.insert(id)
+        }
+    }
+
+    // MARK: - Data
 
     private func deleteMedia(_ item: FlashbackPhoto) {
         Task {
@@ -117,6 +339,20 @@ struct FlashbackDetailView: View {
                 print("Failed to delete: \(error.localizedDescription)")
             }
             mediaToDelete = nil
+        }
+    }
+
+    private func setCover(to item: FlashbackPhoto) {
+        Task {
+            do {
+                try await FlashbackManager.shared.setCover(
+                    for: flashback.id,
+                    imagePath: item.storagePath,
+                    thumbnailPath: item.thumbnailPath
+                )
+            } catch {
+                print("Failed to set cover: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -132,6 +368,119 @@ struct FlashbackDetailView: View {
             media = try await FlashbackManager.shared.loadPhotos(for: flashback.id)
         } catch {
             print("Failed to load media: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadMembers() async {
+        do {
+            members = try await FlashbackManager.shared.members(for: flashback.id)
+        } catch {
+            print("Failed to load members: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - Cover Picker
+
+private struct CoverPickerView: View {
+    let flashback: Flashback
+    let media: [FlashbackPhoto]
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var isUploading = false
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 2),
+        GridItem(.flexible(), spacing: 2),
+        GridItem(.flexible(), spacing: 2)
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                PhotosPicker(selection: $pickerItem, matching: .images) {
+                    Label("Choose from Camera Roll", systemImage: "photo.badge.plus")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .padding()
+
+                if !media.isEmpty {
+                    HStack {
+                        Text("Or pick from this album")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+
+                    LazyVGrid(columns: columns, spacing: 2) {
+                        ForEach(media) { item in
+                            CachedAsyncImage(storagePath: item.thumbnailPath ?? item.storagePath, contentMode: .fill)
+                                .aspectRatio(1, contentMode: .fit)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    chooseExisting(item)
+                                }
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+            .overlay {
+                if isUploading {
+                    ProgressView().tint(.white)
+                        .padding(24)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .navigationTitle("Set Cover")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .onChange(of: pickerItem) { _, item in
+                guard let item else { return }
+                uploadFromLibrary(item)
+            }
+        }
+    }
+
+    private func chooseExisting(_ item: FlashbackPhoto) {
+        Task {
+            do {
+                try await FlashbackManager.shared.setCover(
+                    for: flashback.id,
+                    imagePath: item.storagePath,
+                    thumbnailPath: item.thumbnailPath
+                )
+                dismiss()
+            } catch {
+                print("Failed to set cover: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func uploadFromLibrary(_ item: PhotosPickerItem) {
+        isUploading = true
+        Task {
+            defer { isUploading = false }
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data) else { return }
+                try await FlashbackManager.shared.uploadCover(image, for: flashback.id)
+                dismiss()
+            } catch {
+                print("Failed to upload cover: \(error.localizedDescription)")
+            }
         }
     }
 }

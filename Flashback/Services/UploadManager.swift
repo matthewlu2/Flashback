@@ -37,7 +37,7 @@ class UploadManager: ObservableObject {
 
     private init() {}
 
-    func uploadPhoto(_ image: UIImage, toFlashback flashbackId: UUID) {
+    func uploadPhoto(_ image: UIImage, takenAt: Date = Date(), toFlashback flashbackId: UUID) {
         let downscaled = MediaProcessor.downscaleImage(image, maxDimension: 2048)
         guard let imageData = downscaled.jpegData(compressionQuality: 0.8) else {
             print("Failed to process image for upload")
@@ -80,6 +80,7 @@ class UploadManager: ObservableObject {
                     storagePath: storagePath,
                     thumbnailPath: thumbnailPath,
                     mediaType: .photo,
+                    takenAt: takenAt,
                     toFlashback: flashbackId
                 )
 
@@ -106,6 +107,9 @@ class UploadManager: ObservableObject {
                 // Poster frame from the original (before compression) for the thumbnail.
                 let posterFrame = await MediaProcessor.posterFrame(forVideo: videoURL)
                 let thumbnailData = posterFrame.flatMap { MediaProcessor.thumbnailData(from: $0) }
+
+                // Prefer the original clip's recorded creation date as the "taken" time.
+                let takenAt = await getVideoCreationDate(url: videoURL) ?? Date()
 
                 let compressedURL = await MediaProcessor.compressVideo(videoURL)
                 let videoData = try Data(contentsOf: compressedURL)
@@ -135,6 +139,7 @@ class UploadManager: ObservableObject {
                     thumbnailPath: thumbnailPath,
                     mediaType: .video,
                     duration: duration,
+                    takenAt: takenAt,
                     toFlashback: flashbackId
                 )
 
@@ -159,5 +164,12 @@ class UploadManager: ObservableObject {
         } catch {
             return nil
         }
+    }
+
+    /// Reads the recorded creation date from a video asset's metadata, if present.
+    private func getVideoCreationDate(url: URL) async -> Date? {
+        let asset = AVURLAsset(url: url)
+        guard let item = try? await asset.load(.creationDate) else { return nil }
+        return try? await item.load(.dateValue)
     }
 }

@@ -215,6 +215,10 @@ struct FlashbackPhoto: Codable, Identifiable {
   let mediaType: MediaType
   let durationSeconds: Float?
   let createdAt: Date
+  /// Who posted this media (defaults to auth.uid() server-side). Used to filter by uploader.
+  let uploadedBy: UUID?
+  /// When the photo/video was actually taken, distinct from `createdAt` (upload time).
+  let takenAt: Date?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -224,7 +228,13 @@ struct FlashbackPhoto: Codable, Identifiable {
     case mediaType = "media_type"
     case durationSeconds = "duration_seconds"
     case createdAt = "created_at"
+    case uploadedBy = "uploaded_by"
+    case takenAt = "taken_at"
   }
+
+  /// The timestamp to use when sorting by capture time, falling back to upload time
+  /// for older media that predates the `taken_at` column.
+  var effectiveTakenAt: Date { takenAt ?? createdAt }
 }
 
 struct CreateFlashbackPhotoParams: Encodable {
@@ -233,6 +243,7 @@ struct CreateFlashbackPhotoParams: Encodable {
   let thumbnailPath: String?
   let mediaType: MediaType
   let durationSeconds: Float?
+  let takenAt: Date?
 
   enum CodingKeys: String, CodingKey {
     case flashbackId = "flashback_id"
@@ -240,6 +251,49 @@ struct CreateFlashbackPhotoParams: Encodable {
     case thumbnailPath = "thumbnail_path"
     case mediaType = "media_type"
     case durationSeconds = "duration_seconds"
+    case takenAt = "taken_at"
+  }
+}
+
+// MARK: - Album sorting & filtering (UI state)
+
+/// What an album's media grid is sorted by.
+enum MediaSortField: String, CaseIterable, Identifiable {
+  case takenAt
+  case uploadedAt
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .takenAt:    return "Date Taken"
+    case .uploadedAt: return "Date Added"
+    }
+  }
+}
+
+/// Filters the media grid by kind.
+enum MediaTypeFilter: String, CaseIterable, Identifiable {
+  case all
+  case photo
+  case video
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .all:   return "All"
+    case .photo: return "Photos"
+    case .video: return "Videos"
+    }
+  }
+
+  func matches(_ media: FlashbackPhoto) -> Bool {
+    switch self {
+    case .all:   return true
+    case .photo: return media.mediaType == .photo
+    case .video: return media.mediaType == .video
+    }
   }
 }
 

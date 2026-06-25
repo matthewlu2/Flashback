@@ -26,7 +26,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .navigationTitle("Albums")
+            .navigationTitle("Flashbacks")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {

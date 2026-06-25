@@ -83,13 +83,14 @@ class FlashbackManager: ObservableObject {
         return response
     }
 
-    func addMedia(storagePath: String, thumbnailPath: String? = nil, mediaType: MediaType, duration: Float? = nil, toFlashback flashbackId: UUID) async throws {
+    func addMedia(storagePath: String, thumbnailPath: String? = nil, mediaType: MediaType, duration: Float? = nil, takenAt: Date? = nil, toFlashback flashbackId: UUID) async throws {
         let params = CreateFlashbackPhotoParams(
             flashbackId: flashbackId,
             storagePath: storagePath,
             thumbnailPath: thumbnailPath,
             mediaType: mediaType,
-            durationSeconds: duration
+            durationSeconds: duration,
+            takenAt: takenAt
         )
 
         try await supabase
@@ -98,24 +99,52 @@ class FlashbackManager: ObservableObject {
             .execute()
 
         // Notify any view currently showing this album so it reloads the new media.
+        // Albums intentionally start with no cover; the owner picks one later.
         lastMediaUpdate = MediaUpdate(flashbackId: flashbackId, token: UUID())
+    }
 
-        // Update cover image if not set
-        if let index = flashbacks.firstIndex(where: { $0.id == flashbackId }),
-           flashbacks[index].coverImagePath == nil {
-            try await supabase
-                .from("flashbacks")
-                .update([
-                    "cover_image_path": storagePath,
-                    "cover_thumbnail_path": thumbnailPath
-                ])
-                .eq("id", value: flashbackId)
-                .execute()
+    /// Sets an album's cover to an existing storage object (typically one of its photos).
+    /// Owner-only; callers should already gate the UI on ownership.
+    func setCover(for flashbackId: UUID, imagePath: String, thumbnailPath: String?) async throws {
+        try await supabase
+            .from("flashbacks")
+            .update([
+                "cover_image_path": imagePath,
+                "cover_thumbnail_path": thumbnailPath
+            ])
+            .eq("id", value: flashbackId)
+            .execute()
 
-            // Reload to get updated flashback
-            hasLoadedFlashbacks = false
-            await loadFlashbacksIfNeeded()
+        hasLoadedFlashbacks = false
+        await loadFlashbacksIfNeeded()
+    }
+
+    /// Uploads a brand-new image (e.g. picked from the camera roll) purely to serve as the
+    /// album cover. Does not add a `flashback_photos` row, so it never appears in the grid.
+    func uploadCover(_ image: UIImage, for flashbackId: UUID) async throws {
+        let downscaled = MediaProcessor.downscaleImage(image, maxDimension: 2048)
+        guard let imageData = downscaled.jpegData(compressionQuality: 0.8) else { return }
+        let thumbnailData = MediaProcessor.thumbnailData(from: image)
+
+        // Lowercase to match storage RLS (folder segment compared against auth.uid()::text).
+        let userId = try await supabase.auth.session.user.id.uuidString.lowercased()
+        let assetId = UUID().uuidString.lowercased()
+        let storagePath = "\(userId)/\(assetId).jpg"
+
+        try await supabase.storage
+            .from("images")
+            .upload(storagePath, data: imageData, options: .init(contentType: "image/jpeg"))
+
+        var thumbnailPath: String?
+        if let thumbnailData {
+            let path = "\(userId)/thumb_\(assetId).jpg"
+            try await supabase.storage
+                .from("images")
+                .upload(path, data: thumbnailData, options: .init(contentType: "image/jpeg"))
+            thumbnailPath = path
         }
+
+        try await setCover(for: flashbackId, imagePath: storagePath, thumbnailPath: thumbnailPath)
     }
 
     func getSignedURL(for storagePath: String) async throws -> URL {

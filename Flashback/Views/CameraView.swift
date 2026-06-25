@@ -35,7 +35,6 @@ struct CameraView: View {
                 CameraPreview(session: cameraManager.session) { layer in
                     cameraManager.previewLayer = layer
                 }
-                    .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .gesture(
                         // Double tap flips; a single tap focuses where you touch.
@@ -90,153 +89,144 @@ struct CameraView: View {
                 }
             }
 
-            VStack {
-                // Recording timer - top center
-                if cameraManager.isRecording {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 10, height: 10)
+            // Camera controls — hidden once a shot is captured (review mode).
+            if !isReviewing {
+                VStack {
+                    // Recording timer - top center
+                    if cameraManager.isRecording {
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 10, height: 10)
 
-                        Text(formatDuration(recordingDuration))
-                            .font(.subheadline.monospacedDigit())
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white)
+                            Text(formatDuration(recordingDuration))
+                                .font(.subheadline.monospacedDigit())
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
+
+                    Spacer()
+                }
+                .padding(.top, 40)
+
+                // Right-side controls: flip (top) - flash - album (bottom)
+                VStack {
+                  HStack {
+                    Spacer()
+
+                    VStack(spacing: 4) {
+                        // Flip Camera Button
+                        Button {
+                            flipCamera()
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                                .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+                        }
+                        .disabled(cameraManager.isRecording)
+                        .opacity(cameraManager.isRecording ? 0 : 1)
+
+                        // Flash toggle
+                        Button {
+                            cycleFlashMode()
+                        } label: {
+                            Image(systemName: flashIconName)
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(flashMode == .on ? .yellow : .white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                                .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+                        }
+                        .disabled(cameraManager.isRecording)
+                        .opacity(cameraManager.isRecording ? 0 : 1)
+
+                        // Album selector - circular, green dot indicates a selection
+                        Button {
+                            showingFlashbackPicker = true
+                        } label: {
+                            Image(systemName: "rectangle.stack.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                                .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+                                .overlay(alignment: .topTrailing) {
+                                    Circle()
+                                        .fill(selectedFlashback != nil ? Color.green : Color.gray)
+                                        .frame(width: 10, height: 10)
+                                        .shadow(color: selectedFlashback != nil ? .green.opacity(0.9) : .clear, radius: 4)
+                                        .offset(x: -2, y: 2)
+                                }
+                        }
+                        .disabled(cameraManager.isRecording)
+                        .opacity(cameraManager.isRecording ? 0 : 1)
+                    }
+                    .padding(.trailing, 8)
+                  }
+                  .padding(.top, 4)
+
+                  Spacer()
                 }
 
-                Spacer()
-            }
-            .padding(.top, 40)
+                VStack {
+                    Spacer()
 
-            // Right-side controls: flip (top) - flash - album (bottom)
-            VStack {
-              HStack {
-                Spacer()
-
-                VStack(spacing: 4) {
-                    // Flip Camera Button
-                    Button {
-                        flipCamera()
-                    } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                            .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+                    // Zoom controls (hidden while recording)
+                    if !cameraManager.isRecording {
+                        zoomControl
+                            .padding(.bottom, 20)
+                            .transition(.opacity)
                     }
-                    .disabled(cameraManager.isRecording)
-                    .opacity(cameraManager.isRecording ? 0 : 1)
 
-                    // Flash toggle
-                    Button {
-                        cycleFlashMode()
-                    } label: {
-                        Image(systemName: flashIconName)
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(flashMode == .on ? .yellow : .white)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                            .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
-                    }
-                    .disabled(cameraManager.isRecording)
-                    .opacity(cameraManager.isRecording ? 0 : 1)
-
-                    // Album selector - circular, green dot indicates a selection
-                    Button {
-                        showingFlashbackPicker = true
-                    } label: {
-                        Image(systemName: "rectangle.stack.fill")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                            .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
-                            .overlay(alignment: .topTrailing) {
-                                Circle()
-                                    .fill(selectedFlashback != nil ? Color.green : Color.gray)
-                                    .frame(width: 10, height: 10)
-                                    .shadow(color: selectedFlashback != nil ? .green.opacity(0.9) : .clear, radius: 4)
-                                    .offset(x: -2, y: 2)
-                            }
-                    }
-                    .disabled(cameraManager.isRecording)
-                    .opacity(cameraManager.isRecording ? 0 : 1)
-                }
-                .padding(.trailing, 8)
-              }
-              .padding(.top, 4)
-
-              Spacer()
-            }
-
-            VStack {
-                Spacer()
-
-                // Zoom controls (hidden while recording)
-                if !cameraManager.isRecording {
-                    zoomControl
-                        .padding(.bottom, 20)
-                        .transition(.opacity)
-                }
-
-                // Capture Button
-                ShutterButton(
-                    isRecording: cameraManager.isRecording,
-                    onTap: {
-                        cameraManager.capturePhoto()
-                    },
-                    onLongPressStart: {
-                        startRecording()
-                    },
-                    onLongPressEnd: {
-                        stopRecording()
-                    }
-                )
-                .padding(.bottom, 40)
-            }
-            .animation(.easeOut(duration: 0.2), value: cameraManager.isRecording)
-            .sheet(item: $cameraManager.capturedImage) { item in
-                MediaPreviewView(
-                    media: .photo(item.image),
-                    selectedFlashback: selectedFlashback,
-                    onDismiss: {
-                        cameraManager.capturedImage = nil
-                    }
-                )
-            }
-            .onChange(of: cameraManager.capturedVideoURL) { _, newURL in
-                // Video capture is handled via onChange since URL isn't Identifiable
-            }
-            .sheet(isPresented: Binding(
-                get: { cameraManager.capturedVideoURL != nil },
-                set: { if !$0 { cameraManager.capturedVideoURL = nil } }
-            )) {
-                if let url = cameraManager.capturedVideoURL {
-                    MediaPreviewView(
-                        media: .video(url),
-                        selectedFlashback: selectedFlashback,
-                        onDismiss: {
-                            cameraManager.capturedVideoURL = nil
+                    // Capture Button
+                    ShutterButton(
+                        isRecording: cameraManager.isRecording,
+                        onTap: {
+                            cameraManager.capturePhoto()
+                        },
+                        onLongPressStart: {
+                            startRecording()
+                        },
+                        onLongPressEnd: {
+                            stopRecording()
                         }
                     )
+                    .padding(.bottom, 40)
                 }
+                .animation(.easeOut(duration: 0.2), value: cameraManager.isRecording)
             }
-            .sheet(isPresented: $showingFlashbackPicker) {
-                FlashbackPickerView(
-                    selectedFlashback: $selectedFlashback,
-                    showingCreateNew: $showingCreateFlashback
+
+            // Inline capture review — replaces the camera once a shot is taken.
+            if isReviewing {
+                CaptureReviewOverlay(
+                    image: cameraManager.capturedImage?.image,
+                    videoURL: cameraManager.capturedVideoURL,
+                    albumName: selectedFlashback?.name,
+                    onRetake: { discardCapture() },
+                    onChooseAlbum: { showingFlashbackPicker = true },
+                    onSend: { sendCapture() }
                 )
+                .transition(.opacity)
             }
-            .sheet(isPresented: $showingCreateFlashback) {
-                CreateFlashbackView { flashback in
-                    selectedFlashback = flashback
-                }
+        }
+        .animation(.easeOut(duration: 0.2), value: isReviewing)
+        .sheet(isPresented: $showingFlashbackPicker) {
+            FlashbackPickerView(
+                selectedFlashback: $selectedFlashback,
+                showingCreateNew: $showingCreateFlashback
+            )
+        }
+        .sheet(isPresented: $showingCreateFlashback) {
+            CreateFlashbackView { flashback in
+                selectedFlashback = flashback
             }
         }
         .onAppear {
@@ -410,6 +400,134 @@ struct CameraView: View {
            let id = UUID(uuidString: idString),
            let flashback = flashbackManager.flashbacks.first(where: { $0.id == id }) {
             selectedFlashback = flashback
+        }
+    }
+
+    // MARK: - Capture review
+
+    /// True while a freshly captured photo/video is being reviewed before sending.
+    private var isReviewing: Bool {
+        cameraManager.capturedImage != nil || cameraManager.capturedVideoURL != nil
+    }
+
+    /// Discards the current capture and returns to the live camera.
+    private func discardCapture() {
+        if let url = cameraManager.capturedVideoURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        cameraManager.capturedVideoURL = nil
+        cameraManager.capturedImage = nil
+    }
+
+    /// Uploads the current capture to the selected album, then returns to the camera.
+    /// The upload continues in the background via `UploadManager`.
+    private func sendCapture() {
+        guard let flashback = selectedFlashback else { return }
+        UserDefaults.standard.set(flashback.id.uuidString, forKey: Self.lastFlashbackKey)
+
+        if let image = cameraManager.capturedImage?.image {
+            UploadManager.shared.uploadPhoto(image, toFlashback: flashback.id)
+        } else if let url = cameraManager.capturedVideoURL {
+            UploadManager.shared.uploadVideo(url, toFlashback: flashback.id)
+        }
+
+        cameraManager.capturedImage = nil
+        cameraManager.capturedVideoURL = nil
+    }
+}
+
+// MARK: - Capture Review Overlay
+
+/// Shown inline (replacing the camera UI) after a photo/video is captured: the media fills
+/// the screen with a Retake control, the destination album picker, and a send arrow.
+private struct CaptureReviewOverlay: View {
+    let image: UIImage?
+    let videoURL: URL?
+    let albumName: String?
+    let onRetake: () -> Void
+    let onChooseAlbum: () -> Void
+    let onSend: () -> Void
+
+    @State private var player: AVPlayer?
+
+    private var hasAlbum: Bool { albumName != nil }
+
+    var body: some View {
+        ZStack {
+            Color.black
+
+            // Captured media
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else if let videoURL {
+                VideoPlayer(player: player)
+                    .onAppear {
+                        let p = AVPlayer(url: videoURL)
+                        player = p
+                        p.play()
+                    }
+                    .onDisappear {
+                        player?.pause()
+                        player = nil
+                    }
+            }
+
+            // Top bar: Retake
+            VStack {
+                HStack {
+                    Button(action: onRetake) {
+                        Image(systemName: "chevron.left")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+
+                Spacer()
+            }
+
+            // Bottom bar: album picker + send arrow
+            VStack {
+                Spacer()
+                HStack(spacing: 12) {
+                    Button(action: onChooseAlbum) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "rectangle.stack.fill")
+                            Text(albumName ?? "Choose Album")
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.up")
+                                .font(.caption.weight(.bold))
+                        }
+                        .font(.headline)
+                        .foregroundColor(hasAlbum ? .white : .white.opacity(0.75))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 14)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                    }
+
+                    Button(action: onSend) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 56, height: 56)
+                            .background(hasAlbum ? Color.blue : Color.gray)
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.3), radius: 6)
+                    }
+                    .disabled(!hasAlbum)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 40)
+            }
         }
     }
 }
